@@ -1,0 +1,88 @@
+/* Report sheet — a printed-paper look on every theme, matching the PDF export. */
+.rpt {
+  --rpt-navy: #14304f; --rpt-ink: #1a2433; --rpt-muted: #5b6676; --rpt-line: #dde4ec; --rpt-soft: #f4f7fb; --rpt-total: #e5edf6;
+  --rpt-green: #11845b; --rpt-amber: #b26b00; --rpt-red: #c0392b;
+  background: #fff; color: var(--rpt-ink); border-radius: 16px; padding: 30px 32px 34px;
+  box-shadow: 0 1px 2px rgba(15, 30, 55, 0.08), 0 18px 48px -18px rgba(15, 30, 55, 0.35);
+  font-variant-numeric: tabular-nums; color-scheme: light;
+}
+.rpt * { color-scheme: light; }
+.rpt-head { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
+.rpt-brand { display: flex; gap: 14px; align-items: center; min-width: 0; }
+.rpt-logo { width: 64px; height: 64px; object-fit: contain; flex: none; }
+.rpt-mono { width: 58px; height: 58px; border-radius: 14px; flex: none; display: grid; place-items: center; background: linear-gradient(145deg, #1d4572, var(--rpt-navy)); color: #fff; font-weight: 800; font-size: 22px; letter-spacing: 0.5px; }
+.rpt-company { font-size: 22px; font-weight: 800; color: var(--rpt-navy); line-height: 1.15; letter-spacing: -0.2px; }
+.rpt-contact { color: var(--rpt-muted); font-size: 12.5px; margin-top: 4px; line-height: 1.5; }
+.rpt-contact span + span::before { content: '·'; margin: 0 8px; color: #a8b3c0; }
+.rpt-title { text-align: right; flex: none; max-width: 46%; }
+.rpt-title h2 { margin: 0; font-size: 20px; font-weight: 800; color: var(--rpt-ink); letter-spacing: -0.2px; }
+.rpt-period { display: inline-block; margin-top: 6px; padding: 3px 10px; border-radius: 999px; background: var(--rpt-navy); color: #fff; font-size: 12px; font-weight: 700; }
+.rpt-building { color: var(--rpt-muted); font-size: 12px; margin-top: 6px; }
+.rpt-rule { height: 3px; background: var(--rpt-navy); margin: 18px 0 0; border-radius: 2px; }
+.rpt-rule + .rpt-rule2 { height: 1px; background: #8aa4c2; margin-top: 2px; }
+.rpt-meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; background: var(--rpt-soft); border-radius: 10px; padding: 12px 16px; margin-top: 14px; }
+.rpt-meta dt { font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px; color: var(--rpt-muted); text-transform: uppercase; }
+.rpt-meta dd { margin: 3px 0 0; font-weight: 700; font-size: 13.5px; overflow-wrap: anywhere; }
+.rpt-warn { margin-top: 12px; padding: 10px 14px; border-radius: 10px; background: #fdecea; color: var(--rpt-red); font-weight: 600; font-size: 13px; }
+.rpt-demo { margin-top: 10px; color: #9a3412; font-weight: 700; font-size: 13px; }
+.rpt-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; margin-top: 18px; }
+.rpt-kpi { position: relative; border: 1px solid var(--rpt-line); border-radius: 12px; padding: 12px 14px 12px 18px; background: #fff; }
+.rpt-kpi::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px; border-radius: 0 4px 4px 0; background: var(--tone); }
+.rpt-kpi-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--rpt-muted); }
+.rpt-kpi-value { font-size: 21px; font-weight: 800; margin-top: 4px; color: var(--rpt-ink); }
+.rpt-kpi-value small { font-size: 11.5px; font-weight: 600; color: var(--rpt-muted); margin-left: 4px; }
+.rpt-section { margin-top: 26px; }
+.rpt-section h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font-size: 15.5px; font-weight: 800; color: var(--rpt-navy); }
+.rpt-section h3::before { content: ''; width: 4px; height: 16px; border-radius: 2px; background: var(--rpt-navy); }
+.rpt-section h3 small { font-size: 12px; font-weight: 600; color: var(--rpt-muted); }
+.rpt-tablewrap { overflow-x: auto; border: 1px solid var(--rpt-line); border-radius: 10px; }
+.rpt-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rpt-table th { background: var(--rpt-navy); color: #fff; font-weight: 700; font-size: 11.5px; letter-spacing: 0.2px; text-align: left; padding: 9px 12px; white-space: nowrap; }
+.rpt-table td { padding: 8px 12px; border-top: 1px solid var(--rpt-line); color: var(--rpt-ink); }
+.rpt-table tbody tr:nth-child(even) td { background: var(--rpt-soft); }
+.rpt-table tbody tr:hover td { background: #eaf1fb; }
+.rpt-table .num { text-align: right; white-space: nowrap; }
+.rpt-table tfoot td { background: var(--rpt-total); font-weight: 800; color: var(--rpt-navy); border-top: 2px solid var(--rpt-navy); }
+.rpt-empty { padding: 16px; color: var(--rpt-muted); font-style: italic; background: var(--rpt-soft); border-radius: 10px; }
+.rpt-pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: #eef1f5; color: var(--rpt-ink); white-space: nowrap; }
+.rpt-pill.green { background: #e3f4ec; color: var(--rpt-green); } .rpt-pill.amber { background: #fdf1dc; color: var(--rpt-amber); } .rpt-pill.red { background: #fbe4e1; color: var(--rpt-red); }
+.rpt-notes { margin-top: 24px; background: var(--rpt-soft); border-radius: 10px; padding: 12px 16px; color: var(--rpt-muted); font-size: 12.5px; }
+.rpt-notes b { display: block; color: var(--rpt-navy); font-size: 11px; letter-spacing: 0.5px; margin-bottom: 4px; }
+.rpt-notes p { margin: 3px 0; }
+.rpt-sign { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin-top: 48px; }
+.rpt-sign div { border-top: 1.5px solid var(--rpt-navy); padding-top: 6px; font-weight: 700; font-size: 12.5px; }
+.rpt-sign span { display: block; font-weight: 400; color: var(--rpt-muted); font-size: 11.5px; }
+.rpt-foot { margin-top: 26px; padding-top: 10px; border-top: 1px solid var(--rpt-line); display: flex; justify-content: space-between; gap: 12px; color: var(--rpt-muted); font-size: 11.5px; }
+@media (max-width: 760px) {
+  .rpt { padding: 18px 16px 22px; border-radius: 12px; }
+  .rpt-head { flex-direction: column; }
+  .rpt-title { text-align: left; max-width: none; }
+  .rpt-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rpt-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rpt-kpi-value { font-size: 17px; }
+  .rpt-sign { grid-template-columns: 1fr; gap: 30px; }
+  .rpt-foot { flex-direction: column; }
+}
+@media print {
+  .rpt { box-shadow: none; border-radius: 0; padding: 0; }
+  .rpt, .rpt * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .rpt-tablewrap { overflow: visible; border: 0; }
+  .rpt-section { break-inside: auto; } .rpt-kpi, .rpt-table tr { break-inside: avoid; }
+}
+/* Wide tables (many columns) are set tighter so they fit the sheet without scrolling. */
+.rpt-table.dense { font-size: 12px; }
+.rpt-table.dense th { font-size: 10.5px; padding: 8px 7px; white-space: normal; vertical-align: bottom; }
+.rpt-table.dense td { padding: 7px 7px; }
+.rpt-contact { overflow-wrap: anywhere; }
+@media (max-width: 760px) { .rpt-logo { width: 52px; height: 52px; } .rpt-company { font-size: 19px; } }
+/* Report picker (dark app theme). */
+.rpt-picker { padding: 6px 0 8px; }
+.rpt-picker-group { padding: 12px 16px 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-3, #8b95a5); }
+.rpt-picker-item { display: flex; gap: 11px; align-items: flex-start; width: calc(100% - 12px); margin: 1px 6px; padding: 8px 10px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: inherit; text-align: left; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+.rpt-picker-item:hover { background: rgba(111, 162, 255, 0.07); }
+.rpt-picker-item[aria-selected='true'] { background: rgba(47, 107, 255, 0.16); border-color: rgba(111, 162, 255, 0.45); }
+.rpt-picker-item b { display: block; font-size: 13.5px; font-weight: 650; }
+.rpt-picker-item small { display: block; font-size: 11.5px; color: var(--text-3, #8b95a5); margin-top: 1px; }
+.rpt-picker-icon { flex: none; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: rgba(111, 162, 255, 0.12); color: #8fb4ff; }
+.rpt-picker-item[aria-selected='true'] .rpt-picker-icon { background: linear-gradient(145deg, #3b82f6, #2f6bff); color: #fff; }
+@media print { .rpt-picker { display: none; } }

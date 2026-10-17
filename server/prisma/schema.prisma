@@ -1,0 +1,1084 @@
+// Rental Property Management System — database schema (MariaDB 10.4+ / MySQL 8).
+//
+// Rules that Prisma cannot express (CHECK constraints, generated-column unique
+// indexes, immutability/overlap triggers) live in the hand-written SQL migration
+// `prisma/migrations/*_integrity_rules`. Read docs/ARCHITECTURE.md before changing
+// financial tables.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// ───────────────────────── Enums ─────────────────────────
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum AuthTokenType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+  LOGIN_OTP
+}
+
+enum BuildingStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum RoomStatus {
+  VACANT
+  RESERVED
+  OCCUPIED
+  MAINTENANCE
+  INACTIVE
+}
+
+enum TenantStatus {
+  ACTIVE
+  INACTIVE
+  FORMER
+  BLACKLISTED
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  EXPIRING
+  EXPIRED
+  TERMINATED
+  RENEWED
+}
+
+enum ChargeStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  OVERDUE
+  WAIVED
+  VOID
+}
+
+enum PaymentType {
+  PAYMENT
+  REVERSAL
+}
+
+enum PaymentStatus {
+  POSTED
+  REVERSED
+}
+
+enum InvoiceStatus {
+  PENDING
+  GENERATED
+  ISSUED
+  FAILED
+  CANCELLED
+}
+
+enum ExpenseScope {
+  ORGANIZATION
+  BUILDING
+  FLOOR
+  ROOM
+}
+
+enum ExpenseStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  VOID
+}
+
+enum MaintenancePriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum MaintenanceStatus {
+  REPORTED
+  APPROVED
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ReservationStatus {
+  ACTIVE
+  CONVERTED
+  CANCELLED
+  EXPIRED
+}
+
+enum AdjustmentType {
+  DISCOUNT
+  SURCHARGE
+}
+
+enum AdjustmentStatus {
+  ACTIVE
+  CANCELLED
+}
+
+enum DepositTxnType {
+  PAYMENT
+  REFUND
+  DEDUCTION
+  CORRECTION
+}
+
+enum ApprovalType {
+  PAYMENT_REVERSAL
+  RENT_ADJUSTMENT
+  DEBT_WAIVER
+  DEPOSIT_REFUND
+}
+
+enum ApprovalStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PeriodStatus {
+  OPEN
+  CLOSED
+}
+
+enum NotificationCategory {
+  RENT
+  PAYMENT
+  CONTRACT
+  MAINTENANCE
+  FINANCE
+  SYSTEM
+}
+
+enum MessageChannel {
+  COPY
+  EMAIL
+  SMS
+  WHATSAPP
+}
+
+enum MessageStatus {
+  GENERATED
+  SENT
+  FAILED
+}
+
+// ───────────────────────── Organization & settings ─────────────────────────
+
+model Organization {
+  id                String   @id @default(uuid()) @db.Char(36)
+  name              String   @db.VarChar(160)
+  legalName         String?  @db.VarChar(200)
+  tin               String?  @db.VarChar(40)
+  address           String?  @db.VarChar(255)
+  phone             String?  @db.VarChar(40)
+  email             String?  @db.VarChar(160)
+  currency          String   @default("RWF") @db.VarChar(3)
+  timezone          String   @default("Africa/Kigali") @db.VarChar(64)
+  defaultDueDay     Int      @default(5)
+  defaultGraceDays  Int      @default(5)
+  expiringSoonDays  Int      @default(30)
+  dueSoonDays       Int      @default(3)
+  receiptPrefix     String   @default("REC") @db.VarChar(10)
+  invoicePrefix     String   @default("INV") @db.VarChar(10)
+  contractPrefix    String   @default("CTR") @db.VarChar(10)
+  /// Allocation rule for incoming rent payments. Only OLDEST_FIRST is implemented.
+  allocationRule    String   @default("OLDEST_FIRST") @db.VarChar(20)
+  notifyInApp       Boolean  @default(true)
+  /// Bill a contract's partial first/last calendar month by days instead of a full month.
+  proratePartialMonths Boolean @default(true)
+  /// true: each payment must be verified by a second person; false: recording a payment is enough.
+  requirePaymentVerification Boolean @default(true)
+  /// True when the database was populated by the demo seed script.
+  isDemo            Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  users             User[]
+  buildings         Building[]
+  tenants           Tenant[]
+  paymentMethods    PaymentMethod[]
+  expenseCategories ExpenseCategory[]
+  sequences         Sequence[]
+  periods           AccountingPeriod[]
+
+  @@map("organizations")
+}
+
+/// Gap-free document numbering (receipts, invoices, contracts, …). Rows are locked
+/// FOR UPDATE inside the transaction that consumes the number.
+model Sequence {
+  orgId     String @db.Char(36)
+  key       String @db.VarChar(30)
+  year      Int
+  nextValue Int    @default(1)
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Restrict)
+
+  @@id([orgId, key, year])
+  @@map("sequences")
+}
+
+// ───────────────────────── Users & RBAC ─────────────────────────
+
+model User {
+  id              String     @id @default(uuid()) @db.Char(36)
+  orgId           String     @db.Char(36)
+  email           String     @unique @db.VarChar(160)
+  fullName        String     @db.VarChar(160)
+  phone           String?    @db.VarChar(40)
+  passwordHash    String     @db.VarChar(255)
+  status          UserStatus @default(ACTIVE)
+  emailVerifiedAt DateTime?
+  mustChangePassword Boolean @default(false)
+  lastLoginAt     DateTime?
+  failedLogins    Int        @default(0)
+  lockedUntil     DateTime?
+  /// Soft delete. Users are never hard-deleted so that financial history keeps its owner.
+  deletedAt       DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  roles         UserRole[]
+  sessions      Session[]
+  authTokens    AuthToken[]
+  notifications Notification[]
+
+  paymentsRecorded  Payment[]            @relation("PaymentRecordedBy")
+  paymentsVerified  Payment[]            @relation("PaymentVerifiedBy")
+  expensesRecorded  Expense[]            @relation("ExpenseRecordedBy")
+  expensesApproved  Expense[]            @relation("ExpenseApprovedBy")
+  maintReported     MaintenanceRequest[] @relation("MaintReportedBy")
+  maintAssigned     MaintenanceRequest[] @relation("MaintAssignedTo")
+  approvalsAsked    ApprovalRequest[]    @relation("ApprovalRequestedBy")
+  approvalsDecided  ApprovalRequest[]    @relation("ApprovalDecidedBy")
+  documents         Document[]
+  depositTxns       DepositTransaction[]
+  periodsClosed     AccountingPeriod[]
+  messages          MessageLog[]
+  receiptsIssued    Receipt[]
+  reservations      Reservation[]
+  rentRates         RoomRentRate[]
+  contractRates     ContractRentRate[]
+  contractsCreated  Contract[]
+
+  @@index([orgId])
+  @@map("users")
+}
+
+model Role {
+  id          String  @id @default(uuid()) @db.Char(36)
+  key         String  @unique @db.VarChar(40)
+  name        String  @db.VarChar(80)
+  description String? @db.VarChar(255)
+  isSystem    Boolean @default(false)
+
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String @id @default(uuid()) @db.Char(36)
+  key         String @unique @db.VarChar(60)
+  description String @db.VarChar(255)
+  category    String @db.VarChar(40)
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @db.Char(36)
+  permissionId String @db.Char(36)
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId String @db.Char(36)
+  roleId String @db.Char(36)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model Session {
+  id         String    @id @default(uuid()) @db.Char(36)
+  userId     String    @db.Char(36)
+  /// SHA-256 of the opaque cookie token. The raw token is never stored.
+  tokenHash  String    @unique @db.Char(64)
+  csrfToken  String    @db.Char(64)
+  ip         String?   @db.VarChar(64)
+  userAgent  String?   @db.VarChar(255)
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model AuthToken {
+  id        String        @id @default(uuid()) @db.Char(36)
+  userId    String        @db.Char(36)
+  type      AuthTokenType
+  tokenHash String        @unique @db.Char(64)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+  /// LOGIN_OTP only: hash of the 6-digit code, wrong-guess counter, and how often / when the code was e-mailed.
+  codeHash  String?       @db.Char(64)
+  attempts  Int           @default(0)
+  sendCount Int           @default(0)
+  sentAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, type])
+  @@map("auth_tokens")
+}
+
+// ───────────────────────── Property structure ─────────────────────────
+
+model Building {
+  id          String         @id @default(uuid()) @db.Char(36)
+  orgId       String         @db.Char(36)
+  code        String         @db.VarChar(20)
+  name        String         @db.VarChar(120)
+  address     String?        @db.VarChar(255)
+  description String?        @db.Text
+  status      BuildingStatus @default(ACTIVE)
+  /// The company that owns / lets this building — printed on its reports, receipts and contracts.
+  companyName String?        @db.VarChar(160)
+  tin         String?        @db.VarChar(40)
+  phone       String?        @db.VarChar(40)
+  email       String?        @db.VarChar(160)
+  /// Person who signs the lease contracts for the company.
+  managerName String?        @db.VarChar(160)
+  bankName    String?        @db.VarChar(120)
+  bankAccount String?        @db.VarChar(60)
+  /// Land plot number (UPI) of the building.
+  upi         String?        @db.VarChar(60)
+  district    String?        @db.VarChar(80)
+  sector      String?        @db.VarChar(80)
+  cell        String?        @db.VarChar(80)
+  village     String?        @db.VarChar(80)
+  /// The building's own lease contract: a .docx file in server/templates. Null until one is set up.
+  contractTemplate String?   @db.VarChar(120)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  org          Organization         @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  floors       Floor[]
+  rooms        Room[]
+  contracts    Contract[]
+  charges      RentCharge[]
+  payments     Payment[]
+  expenses     Expense[]
+  maintenance  MaintenanceRequest[]
+  invoices     Invoice[]
+
+  @@unique([orgId, code])
+  @@unique([orgId, name])
+  @@map("buildings")
+}
+
+model Floor {
+  id         String   @id @default(uuid()) @db.Char(36)
+  buildingId String   @db.Char(36)
+  name       String   @db.VarChar(80)
+  /// Sort order: negative for basements, 0 ground, 1.. upper floors.
+  level      Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  building    Building             @relation(fields: [buildingId], references: [id], onDelete: Restrict)
+  rooms       Room[]
+  contracts   Contract[]
+  charges     RentCharge[]
+  payments    Payment[]
+  expenses    Expense[]
+  maintenance MaintenanceRequest[]
+
+  @@unique([buildingId, name])
+  @@unique([buildingId, level])
+  /// Target of the composite FK from rooms, guaranteeing room.buildingId == floor.buildingId.
+  @@unique([id, buildingId])
+  @@map("floors")
+}
+
+model Room {
+  id              String     @id @default(uuid()) @db.Char(36)
+  buildingId      String     @db.Char(36)
+  floorId         String     @db.Char(36)
+  number          String     @db.VarChar(30)
+  roomType        String     @default("Shop") @db.VarChar(40)
+  /// Current standard rent. History is in room_rent_rates.
+  monthlyRent     Decimal    @db.Decimal(14, 2)
+  depositRequired Decimal    @default(0) @db.Decimal(14, 2)
+  status          RoomStatus @default(VACANT)
+  description     String?    @db.Text
+  areaSqm         Decimal?   @db.Decimal(8, 2)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  building     Building             @relation(fields: [buildingId], references: [id], onDelete: Restrict)
+  floor        Floor                @relation(fields: [floorId, buildingId], references: [id, buildingId], onDelete: Restrict)
+  rentRates    RoomRentRate[]
+  contracts    Contract[]
+  charges      RentCharge[]
+  payments     Payment[]
+  expenses     Expense[]
+  maintenance  MaintenanceRequest[]
+  reservations Reservation[]
+
+  @@unique([buildingId, number])
+  @@index([floorId, buildingId])
+  @@index([status])
+  @@index([buildingId, status])
+  @@map("rooms")
+}
+
+/// Versioned standard rent of a room. Rows are closed (effectiveTo set), never rewritten.
+model RoomRentRate {
+  id            String    @id @default(uuid()) @db.Char(36)
+  roomId        String    @db.Char(36)
+  amount        Decimal   @db.Decimal(14, 2)
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  reason        String?   @db.VarChar(255)
+  createdById   String?   @db.Char(36)
+  createdAt     DateTime  @default(now())
+
+  room      Room  @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([roomId, effectiveFrom])
+  @@map("room_rent_rates")
+}
+
+// ───────────────────────── Tenants & contracts ─────────────────────────
+
+model Tenant {
+  id                    String       @id @default(uuid()) @db.Char(36)
+  orgId                 String       @db.Char(36)
+  fullName              String       @db.VarChar(160)
+  idType                String       @default("NATIONAL_ID") @db.VarChar(20)
+  idNumber              String       @db.VarChar(40)
+  phone                 String       @db.VarChar(40)
+  email                 String?      @db.VarChar(160)
+  address               String?      @db.VarChar(255)
+  businessName          String?      @db.VarChar(160)
+  /// Tenant's TIN (tax number), printed on the contract.
+  tin                   String?      @db.VarChar(40)
+  /// Where the tenant lives (Rwandan administrative levels), printed on the contract.
+  district              String?      @db.VarChar(80)
+  sector                String?      @db.VarChar(80)
+  cell                  String?      @db.VarChar(80)
+  village               String?      @db.VarChar(80)
+  emergencyContactName  String?      @db.VarChar(160)
+  emergencyContactPhone String?      @db.VarChar(40)
+  notes                 String?      @db.Text
+  status                TenantStatus @default(INACTIVE)
+  statusReason          String?      @db.VarChar(255)
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  contracts    Contract[]
+  charges      RentCharge[]
+  payments     Payment[]
+  invoices     Invoice[]
+  reservations Reservation[]
+  messages     MessageLog[]
+
+  @@unique([orgId, idNumber])
+  @@unique([orgId, tin])
+  @@index([orgId, fullName])
+  @@index([phone])
+  @@index([orgId, createdAt])
+  @@map("tenants")
+}
+
+model Contract {
+  id                String         @id @default(uuid()) @db.Char(36)
+  orgId             String         @db.Char(36)
+  contractNumber    String         @unique @db.VarChar(30)
+  tenantId          String         @db.Char(36)
+  roomId            String         @db.Char(36)
+  floorId           String         @db.Char(36)
+  buildingId        String         @db.Char(36)
+  startDate         DateTime       @db.Date
+  endDate           DateTime       @db.Date
+  /// Current contractual rent. History is in contract_rent_rates.
+  monthlyRent       Decimal        @db.Decimal(14, 2)
+  /// The room's standard rent at signing; differs from monthlyRent only for tenant-specific rent.
+  roomRentAtSigning Decimal        @db.Decimal(14, 2)
+  rentOverrideReason String?       @db.VarChar(255)
+  depositAmount     Decimal        @default(0) @db.Decimal(14, 2)
+  paymentDueDay     Int
+  graceDays         Int
+  specialTerms      String?        @db.Text
+  status            ContractStatus @default(DRAFT)
+  activatedAt       DateTime?
+  /// First month this system bills for. Set only for contracts imported from an earlier
+  /// system, whose earlier months were settled there. Null = bill from the start date.
+  billingStart      DateTime?      @db.Date
+  /// Move-out details, set on termination.
+  terminatedOn      DateTime?      @db.Date
+  terminationReason String?        @db.VarChar(255)
+  roomCondition     String?        @db.Text
+  finalBalance      Decimal?       @db.Decimal(14, 2)
+  renewedFromId     String?        @unique @db.Char(36)
+  createdById       String?        @db.Char(36)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  room        Room                 @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  floor       Floor                @relation(fields: [floorId], references: [id], onDelete: Restrict)
+  building    Building             @relation(fields: [buildingId], references: [id], onDelete: Restrict)
+  renewedFrom Contract?            @relation("ContractRenewal", fields: [renewedFromId], references: [id], onDelete: Restrict)
+  renewedTo   Contract?            @relation("ContractRenewal")
+  createdBy   User?                @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  rentRates   ContractRentRate[]
+  adjustments RentAdjustment[]
+  charges     RentCharge[]
+  payments    Payment[]
+  deposits    DepositTransaction[]
+  messages    MessageLog[]
+
+  @@index([tenantId])
+  @@index([roomId, status])
+  @@index([buildingId, status])
+  @@index([endDate])
+  @@index([orgId, status])
+  @@map("contracts")
+}
+
+/// Versioned contractual rent (rent increases during a contract).
+model ContractRentRate {
+  id            String    @id @default(uuid()) @db.Char(36)
+  contractId    String    @db.Char(36)
+  amount        Decimal   @db.Decimal(14, 2)
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  reason        String?   @db.VarChar(255)
+  createdById   String?   @db.Char(36)
+  createdAt     DateTime  @default(now())
+
+  contract  Contract @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  createdBy User?    @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([contractId, effectiveFrom])
+  @@map("contract_rent_rates")
+}
+
+/// Approved discount/surcharge applied to rent charges generated for the covered periods.
+model RentAdjustment {
+  id            String           @id @default(uuid()) @db.Char(36)
+  contractId    String           @db.Char(36)
+  type          AdjustmentType
+  amount        Decimal          @db.Decimal(14, 2)
+  reason        String           @db.VarChar(255)
+  effectiveFrom DateTime         @db.Date
+  effectiveTo   DateTime?        @db.Date
+  status        AdjustmentStatus @default(ACTIVE)
+  approvalId    String?          @unique @db.Char(36)
+  createdAt     DateTime         @default(now())
+
+  contract Contract         @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  approval ApprovalRequest? @relation(fields: [approvalId], references: [id], onDelete: Restrict)
+
+  @@index([contractId, effectiveFrom])
+  @@map("rent_adjustments")
+}
+
+model Reservation {
+  id            String            @id @default(uuid()) @db.Char(36)
+  roomId        String            @db.Char(36)
+  tenantId      String?           @db.Char(36)
+  prospectName  String            @db.VarChar(160)
+  prospectPhone String?           @db.VarChar(40)
+  reservedOn    DateTime          @db.Date
+  expiresOn     DateTime          @db.Date
+  depositAmount Decimal           @default(0) @db.Decimal(14, 2)
+  notes         String?           @db.Text
+  status        ReservationStatus @default(ACTIVE)
+  createdById   String?           @db.Char(36)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  room      Room    @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  tenant    Tenant? @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  createdBy User?   @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([roomId, status])
+  @@map("reservations")
+}
+
+// ───────────────────────── Rent ledger ─────────────────────────
+
+model RentCharge {
+  id               String       @id @default(uuid()) @db.Char(36)
+  orgId            String       @db.Char(36)
+  contractId       String       @db.Char(36)
+  tenantId         String       @db.Char(36)
+  roomId           String       @db.Char(36)
+  floorId          String       @db.Char(36)
+  buildingId       String       @db.Char(36)
+  /// First day of the billed calendar month.
+  period           DateTime     @db.Date
+  baseAmount       Decimal      @db.Decimal(14, 2)
+  adjustmentAmount Decimal      @default(0) @db.Decimal(14, 2)
+  amountDue        Decimal      @db.Decimal(14, 2)
+  amountPaid       Decimal      @default(0) @db.Decimal(14, 2)
+  amountWaived     Decimal      @default(0) @db.Decimal(14, 2)
+  balance          Decimal      @db.Decimal(14, 2)
+  status           ChargeStatus @default(UNPAID)
+  dueDate          DateTime     @db.Date
+  /// dueDate + grace period. The charge is overdue when balance > 0 and today > overdueFrom.
+  overdueFrom      DateTime     @db.Date
+  note             String?      @db.VarChar(255)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  contract    Contract            @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  room        Room                @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  floor       Floor               @relation(fields: [floorId], references: [id], onDelete: Restrict)
+  building    Building            @relation(fields: [buildingId], references: [id], onDelete: Restrict)
+  allocations PaymentAllocation[]
+
+  @@index([contractId, period])
+  @@index([buildingId, period])
+  @@index([tenantId, period])
+  @@index([roomId, period])
+  @@index([status, overdueFrom])
+  @@index([orgId, period])
+  @@index([orgId, dueDate])
+  @@index([orgId, status, overdueFrom])
+  @@index([tenantId, status])
+  @@map("rent_charges")
+}
+
+model PaymentMethod {
+  id                String  @id @default(uuid()) @db.Char(36)
+  orgId             String  @db.Char(36)
+  code              String  @db.VarChar(30)
+  name              String  @db.VarChar(80)
+  requiresReference Boolean @default(false)
+  isActive          Boolean @default(true)
+  sortOrder         Int     @default(0)
+
+  org      Organization         @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  payments Payment[]
+  expenses Expense[]
+  deposits DepositTransaction[]
+
+  @@unique([orgId, code])
+  @@map("payment_methods")
+}
+
+/// Rent ledger transaction. Rows are immutable (enforced by trigger): corrections are
+/// made by posting a REVERSAL row and, if needed, a new PAYMENT row.
+model Payment {
+  id                String        @id @default(uuid()) @db.Char(36)
+  orgId             String        @db.Char(36)
+  type              PaymentType   @default(PAYMENT)
+  status            PaymentStatus @default(POSTED)
+  tenantId          String        @db.Char(36)
+  contractId        String        @db.Char(36)
+  roomId            String        @db.Char(36)
+  floorId           String        @db.Char(36)
+  buildingId        String        @db.Char(36)
+  /// Positive for PAYMENT, negative for REVERSAL.
+  amount            Decimal       @db.Decimal(14, 2)
+  allocatedAmount   Decimal       @default(0) @db.Decimal(14, 2)
+  /// Advance credit not yet applied to any rent charge.
+  unallocatedAmount Decimal       @default(0) @db.Decimal(14, 2)
+  paidAt            DateTime
+  /// Calendar date of paidAt in the organization's timezone (used by all reports).
+  businessDate      DateTime      @db.Date
+  methodId          String        @db.Char(36)
+  reference         String?       @db.VarChar(80)
+  notes             String?       @db.Text
+  idempotencyKey    String        @db.VarChar(80)
+  reversesId        String?       @unique @db.Char(36)
+  reason            String?       @db.VarChar(255)
+  recordedById      String        @db.Char(36)
+  verifiedById      String?       @db.Char(36)
+  verifiedAt        DateTime?
+  createdAt         DateTime      @default(now())
+
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  contract    Contract            @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  room        Room                @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  floor       Floor               @relation(fields: [floorId], references: [id], onDelete: Restrict)
+  building    Building            @relation(fields: [buildingId], references: [id], onDelete: Restrict)
+  method      PaymentMethod       @relation(fields: [methodId], references: [id], onDelete: Restrict)
+  reverses    Payment?            @relation("PaymentReversal", fields: [reversesId], references: [id], onDelete: Restrict)
+  reversedBy  Payment?            @relation("PaymentReversal")
+  recordedBy  User                @relation("PaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  verifiedBy  User?               @relation("PaymentVerifiedBy", fields: [verifiedById], references: [id], onDelete: Restrict)
+  allocations PaymentAllocation[]
+  receipt     Receipt?
+  invoice     Invoice?
+
+  @@unique([orgId, idempotencyKey])
+  @@index([buildingId, businessDate])
+  @@index([orgId, businessDate])
+  @@index([tenantId, paidAt])
+  @@index([contractId])
+  @@index([roomId])
+  @@index([reference])
+  @@index([orgId, verifiedAt])
+  @@index([orgId, createdAt])
+  @@index([orgId, paidAt])
+  @@map("payments")
+}
+
+/// Which rent charge (billing period) each part of a payment covers. Append-only.
+model PaymentAllocation {
+  id           String   @id @default(uuid()) @db.Char(36)
+  paymentId    String   @db.Char(36)
+  rentChargeId String   @db.Char(36)
+  /// Signed: negative rows are created by reversals.
+  amount       Decimal  @db.Decimal(14, 2)
+  createdAt    DateTime @default(now())
+
+  payment    Payment    @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  rentCharge RentCharge @relation(fields: [rentChargeId], references: [id], onDelete: Restrict)
+
+  @@index([paymentId])
+  @@index([rentChargeId])
+  @@map("payment_allocations")
+}
+
+model Receipt {
+  id            String    @id @default(uuid()) @db.Char(36)
+  orgId         String    @db.Char(36)
+  receiptNumber String    @unique @db.VarChar(30)
+  paymentId     String    @unique @db.Char(36)
+  issuedAt      DateTime  @default(now())
+  issuedById    String    @db.Char(36)
+  /// Frozen copy of what the receipt said when issued (tenant, room, allocation lines).
+  snapshot      Json
+  voidedAt      DateTime?
+  voidReason    String?   @db.VarChar(255)
+
+  payment  Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  issuedBy User    @relation(fields: [issuedById], references: [id], onDelete: Restrict)
+
+  @@map("receipts")
+}
+
+/// EBM / tax-invoice tracking. References are entered by staff; no RRA integration is configured.
+model Invoice {
+  id            String        @id @default(uuid()) @db.Char(36)
+  orgId         String        @db.Char(36)
+  invoiceNumber String        @unique @db.VarChar(30)
+  paymentId     String        @unique @db.Char(36)
+  tenantId      String        @db.Char(36)
+  buildingId    String        @db.Char(36)
+  amount        Decimal       @db.Decimal(14, 2)
+  issueDate     DateTime      @db.Date
+  ebmReference  String?       @db.VarChar(80)
+  status        InvoiceStatus @default(PENDING)
+  statusNote    String?       @db.VarChar(255)
+  updatedById   String?       @db.Char(36)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  payment  Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  building Building @relation(fields: [buildingId], references: [id], onDelete: Restrict)
+
+  @@unique([orgId, ebmReference])
+  @@index([status])
+  @@index([buildingId, issueDate])
+  @@map("invoices")
+}
+
+/// Security deposit ledger — deliberately separate from rent payments so deposits are
+/// never counted as rental income. Append-only.
+model DepositTransaction {
+  id           String         @id @default(uuid()) @db.Char(36)
+  orgId        String         @db.Char(36)
+  number       String         @unique @db.VarChar(30)
+  contractId   String         @db.Char(36)
+  type         DepositTxnType
+  /// Always positive except CORRECTION, which is signed (effect on deposit held).
+  amount       Decimal        @db.Decimal(14, 2)
+  txnDate      DateTime       @db.Date
+  methodId     String?        @db.Char(36)
+  reference    String?        @db.VarChar(80)
+  reason       String?        @db.VarChar(255)
+  recordedById String         @db.Char(36)
+  approvalId   String?        @unique @db.Char(36)
+  createdAt    DateTime       @default(now())
+
+  contract   Contract         @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  method     PaymentMethod?   @relation(fields: [methodId], references: [id], onDelete: Restrict)
+  recordedBy User             @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+  approval   ApprovalRequest? @relation(fields: [approvalId], references: [id], onDelete: Restrict)
+
+  @@index([contractId])
+  @@map("deposit_transactions")
+}
+
+model AccountingPeriod {
+  id         String       @id @default(uuid()) @db.Char(36)
+  orgId      String       @db.Char(36)
+  /// First day of the month.
+  period     DateTime     @db.Date
+  status     PeriodStatus @default(OPEN)
+  closedById String?      @db.Char(36)
+  closedAt   DateTime?
+  note       String?      @db.VarChar(255)
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  closedBy User?        @relation(fields: [closedById], references: [id], onDelete: Restrict)
+
+  @@unique([orgId, period])
+  @@map("accounting_periods")
+}
+
+model ApprovalRequest {
+  id            String         @id @default(uuid()) @db.Char(36)
+  orgId         String         @db.Char(36)
+  type          ApprovalType
+  status        ApprovalStatus @default(SUBMITTED)
+  entityType    String         @db.VarChar(40)
+  entityId      String         @db.Char(36)
+  /// Human-readable description shown in the approval queue.
+  summary       String         @db.VarChar(255)
+  reason        String         @db.VarChar(500)
+  payload       Json
+  requestedById String         @db.Char(36)
+  decidedById   String?        @db.Char(36)
+  decidedAt     DateTime?
+  decisionNote  String?        @db.VarChar(500)
+  createdAt     DateTime       @default(now())
+
+  requestedBy User                @relation("ApprovalRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  decidedBy   User?               @relation("ApprovalDecidedBy", fields: [decidedById], references: [id], onDelete: Restrict)
+  adjustment  RentAdjustment?
+  depositTxn  DepositTransaction?
+
+  @@index([orgId, status])
+  @@index([entityType, entityId])
+  @@map("approval_requests")
+}
+
+// ───────────────────────── Expenses & maintenance ─────────────────────────
+
+model ExpenseCategory {
+  id       String  @id @default(uuid()) @db.Char(36)
+  orgId    String  @db.Char(36)
+  name     String  @db.VarChar(80)
+  isActive Boolean @default(true)
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  expenses Expense[]
+
+  @@unique([orgId, name])
+  @@map("expense_categories")
+}
+
+model Expense {
+  id                   String        @id @default(uuid()) @db.Char(36)
+  orgId                String        @db.Char(36)
+  number               String        @unique @db.VarChar(30)
+  scope                ExpenseScope
+  buildingId           String?       @db.Char(36)
+  floorId              String?       @db.Char(36)
+  roomId               String?       @db.Char(36)
+  categoryId           String        @db.Char(36)
+  description          String        @db.VarChar(500)
+  amount               Decimal       @db.Decimal(14, 2)
+  expenseDate          DateTime      @db.Date
+  methodId             String?       @db.Char(36)
+  supplier             String?       @db.VarChar(160)
+  reference            String?       @db.VarChar(80)
+  status               ExpenseStatus @default(SUBMITTED)
+  maintenanceRequestId String?       @db.Char(36)
+  recordedById         String        @db.Char(36)
+  approvedById         String?       @db.Char(36)
+  decidedAt            DateTime?
+  decisionNote         String?       @db.VarChar(255)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  building    Building?           @relation(fields: [buildingId], references: [id], onDelete: Restrict)
+  floor       Floor?              @relation(fields: [floorId], references: [id], onDelete: Restrict)
+  room        Room?               @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  category    ExpenseCategory     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  method      PaymentMethod?      @relation(fields: [methodId], references: [id], onDelete: Restrict)
+  maintenance MaintenanceRequest? @relation(fields: [maintenanceRequestId], references: [id], onDelete: Restrict)
+  recordedBy  User                @relation("ExpenseRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  approvedBy  User?               @relation("ExpenseApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
+
+  @@index([orgId, expenseDate])
+  @@index([buildingId, expenseDate])
+  @@index([status])
+  @@index([maintenanceRequestId])
+  @@map("expenses")
+}
+
+model MaintenanceRequest {
+  id            String              @id @default(uuid()) @db.Char(36)
+  orgId         String              @db.Char(36)
+  number        String              @unique @db.VarChar(30)
+  buildingId    String              @db.Char(36)
+  floorId       String?             @db.Char(36)
+  roomId        String?             @db.Char(36)
+  title         String              @db.VarChar(160)
+  description   String?             @db.Text
+  priority      MaintenancePriority @default(MEDIUM)
+  status        MaintenanceStatus   @default(REPORTED)
+  reportedOn    DateTime            @db.Date
+  reportedById  String              @db.Char(36)
+  assignedToId  String?             @db.Char(36)
+  estimatedCost Decimal?            @db.Decimal(14, 2)
+  actualCost    Decimal?            @db.Decimal(14, 2)
+  supplier      String?             @db.VarChar(160)
+  completedOn   DateTime?           @db.Date
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  building   Building  @relation(fields: [buildingId], references: [id], onDelete: Restrict)
+  floor      Floor?    @relation(fields: [floorId], references: [id], onDelete: Restrict)
+  room       Room?     @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  reportedBy User      @relation("MaintReportedBy", fields: [reportedById], references: [id], onDelete: Restrict)
+  assignedTo User?     @relation("MaintAssignedTo", fields: [assignedToId], references: [id], onDelete: Restrict)
+  expenses   Expense[]
+
+  @@index([buildingId, status])
+  @@index([roomId])
+  @@index([orgId, status])
+  @@map("maintenance_requests")
+}
+
+// ───────────────────────── Documents, notifications, messages, audit ─────────────────────────
+
+/// Uploaded file metadata. Files live in private storage and are only served through
+/// the authenticated /documents/:id/download endpoint.
+model Document {
+  id           String    @id @default(uuid()) @db.Char(36)
+  orgId        String    @db.Char(36)
+  entityType   String    @db.VarChar(40)
+  entityId     String    @db.Char(36)
+  category     String    @db.VarChar(40)
+  fileName     String    @db.VarChar(255)
+  storedName   String    @unique @db.VarChar(120)
+  mimeType     String    @db.VarChar(100)
+  sizeBytes    Int
+  sha256       String    @db.Char(64)
+  version      Int       @default(1)
+  uploadedById String    @db.Char(36)
+  createdAt    DateTime  @default(now())
+  archivedAt   DateTime?
+
+  uploadedBy User @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([entityType, entityId])
+  @@map("documents")
+}
+
+model Notification {
+  id         String               @id @default(uuid()) @db.Char(36)
+  userId     String               @db.Char(36)
+  category   NotificationCategory
+  title      String               @db.VarChar(160)
+  body       String               @db.VarChar(500)
+  entityType String?              @db.VarChar(40)
+  entityId   String?              @db.Char(36)
+  /// Prevents the scheduler from raising the same alert twice for the same user.
+  dedupeKey  String               @db.VarChar(120)
+  readAt     DateTime?
+  createdAt  DateTime             @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
+}
+
+/// Tenant communication log. Status SENT is only ever written by a configured, real channel.
+model MessageLog {
+  id          String         @id @default(uuid()) @db.Char(36)
+  orgId       String         @db.Char(36)
+  tenantId    String         @db.Char(36)
+  contractId  String?        @db.Char(36)
+  channel     MessageChannel
+  template    String         @db.VarChar(40)
+  body        String         @db.Text
+  status      MessageStatus
+  error       String?        @db.VarChar(255)
+  createdById String         @db.Char(36)
+  createdAt   DateTime       @default(now())
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  contract  Contract? @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  createdBy User      @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, createdAt])
+  @@map("message_logs")
+}
+
+/// Append-only (enforced by trigger). userId is intentionally not a foreign key so a
+/// log row can never block or be affected by user administration.
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  orgId      String?  @db.Char(36)
+  userId     String?  @db.Char(36)
+  userLabel  String?  @db.VarChar(200)
+  action     String   @db.VarChar(60)
+  entityType String   @db.VarChar(40)
+  entityId   String?  @db.VarChar(40)
+  summary    String?  @db.VarChar(500)
+  oldValue   Json?
+  newValue   Json?
+  ip         String?  @db.VarChar(64)
+  userAgent  String?  @db.VarChar(255)
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

@@ -1,0 +1,48 @@
+{
+  "name": "@rpms/server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../.env src/main.ts",
+    "start": "node --env-file-if-exists=../.env dist/main.js",
+    "build": "prisma generate && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "generate": "prisma generate",
+    "migrate:deploy": "prisma migrate deploy",
+    "migrate:status": "prisma migrate status",
+    "seed": "LOG_LEVEL=warn tsx --env-file-if-exists=../.env prisma/seed.ts",
+    "bootstrap": "tsx --env-file-if-exists=../.env prisma/bootstrap.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@prisma/adapter-mariadb": "^7.10.0",
+    "@prisma/client": "7.10.0",
+    "cookie-parser": "^1.4.7",
+    "docx": "^9.8.1",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
+    "jszip": "^3.10.2",
+    "multer": "^2.4.0",
+    "nodemailer": "^10.0.13",
+    "pdfkit": "^0.20.2",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.0",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.0.0",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pdfkit": "^0.17.0",
+    "@types/supertest": "^6.0.3",
+    "prisma": "7.10.0",
+    "supertest": "^7.1.0",
+    "tsx": "^4.23.15",
+    "vitest": "^5.0.3"
+  }
+}

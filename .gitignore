@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.pgdata/
+.pgdata-test/
+storage/
+server/src/generated/
+test-results/
+playwright-report/
+*.log
+.DS_Store
+backups/
+.test-storage/

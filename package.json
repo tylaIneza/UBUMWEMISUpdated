@@ -1,0 +1,41 @@
+{
+  "name": "rental-property-management",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Multi-building rental property management system",
+  "type": "module",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "db:start": "node scripts/dev-db.mjs",
+    "db:migrate": "npm run migrate:deploy -w server",
+    "db:seed": "npm run seed -w server --",
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w server && npm run build -w web",
+    "start": "npm run start -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "lint": "eslint .",
+    "test": "npm run test -w server",
+    "test:e2e": "playwright test",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "@playwright/test": "^1.63.0",
+    "eslint": "^10.11.0",
+    "typescript": "~5.9.0",
+    "typescript-eslint": "^8.71.0"
+  },
+  "allowScripts": {
+    "@embedded-postgres/darwin-x64@18.4.0-beta.17": true,
+    "prisma@7.10.0": true,
+    "@prisma/engines@7.10.0": true,
+    "esbuild@0.28.2": true
+  }
+}
