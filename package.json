@@ -12,6 +12,7 @@
     "node": ">=22.18.0"
   },
   "scripts": {
+    "dev": "node scripts/dev.mjs",
     "db:start": "node scripts/dev-db.mjs",
     "db:migrate": "npm run migrate:deploy -w server",
     "db:seed": "npm run seed -w server --",
