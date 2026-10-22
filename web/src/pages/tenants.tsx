@@ -3,16 +3,17 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, newSubmissionKey } from '../api';
 import { useAuth, useMeta } from '../auth';
-import { date, dateTime, label, money, monthRange, parsePhone, phone, smsLink } from '../format';
+import { date, dateTime, label, money, monthRange, parsePhone, phone, smsLink, tenancyPeriod } from '../format';
 import { DocumentsPanel, LedgerTable, PaymentsTable, TimelinePanel, useAction, useApi } from '../shared';
 import { Alert, AutoForm, Badge, Button, Card, Confirm, DL, Empty, enumOpts, ErrorBox, Field, Loading, Modal, opts, PageHead, Pager, Select, Stat, Table, Tabs, TextInput, useDebounced, useToast, type FieldDef } from '../ui';
 
+// Only the name is required; the other details are printed on the contract (as blank lines when missing).
 const TENANT_FIELDS: FieldDef[] = [
-  { name: 'fullName', label: 'Full name', required: true }, { name: 'phone', label: 'Phone number', type: 'tel', required: true, placeholder: '078 812 3456', hint: 'Rwandan number (078…, 079…, 072…, 073…), or + and country code for other countries.' },
-  { name: 'idType', label: 'ID type', type: 'select', options: enumOpts(['NATIONAL_ID', 'PASSPORT', 'OTHER']) }, { name: 'idNumber', label: 'ID / passport number', required: true },
+  { name: 'fullName', label: 'Full name', required: true }, { name: 'phone', label: 'Phone number', type: 'tel', placeholder: '078 812 3456', hint: 'Rwandan number (078…, 079…, 072…, 073…), or + and country code for other countries.' },
+  { name: 'idType', label: 'ID type', type: 'select', options: enumOpts(['NATIONAL_ID', 'PASSPORT', 'OTHER']) }, { name: 'idNumber', label: 'ID / passport number' },
   { name: 'email', label: 'E-mail', type: 'email' }, { name: 'businessName', label: 'Business / company name' },
-  { name: 'tin', label: 'TIN number', required: true, hint: '9 digits, from the RDB certificate. One TIN can belong to only one tenant.' },
-  { name: 'district', label: 'District (Akarere)', required: true }, { name: 'sector', label: 'Sector (Umurenge)', required: true }, { name: 'cell', label: 'Cell (Akagari)', required: true }, { name: 'village', label: 'Village (Umudugudu)', required: true },
+  { name: 'tin', label: 'TIN number', hint: '9 digits, from the RDB certificate. One TIN can belong to only one tenant.' },
+  { name: 'district', label: 'District (Akarere)' }, { name: 'sector', label: 'Sector (Umurenge)' }, { name: 'cell', label: 'Cell (Akagari)' }, { name: 'village', label: 'Village (Umudugudu)' },
   { name: 'address', label: 'Address', full: true }, { name: 'emergencyContactName', label: 'Emergency contact name' }, { name: 'emergencyContactPhone', label: 'Emergency contact phone', type: 'tel', placeholder: '078 812 3456' },
   { name: 'notes', label: 'Notes', type: 'textarea' },
 ];
@@ -89,7 +90,7 @@ function Communication({ tenant }: { tenant: any }) {
             <div>{draft.body}</div>
             <div className="row">
               <Button size="sm" onClick={async () => { await navigator.clipboard.writeText(draft.body); toast('Message copied.'); }}>Copy message</Button>
-              {draft.status === 'GENERATED' && <a className="btn sm" href={smsLink(draft.phone, draft.body)}>Open in SMS app</a>}
+              {draft.status === 'GENERATED' && draft.phone && <a className="btn sm" href={smsLink(draft.phone, draft.body)}>Open in SMS app</a>}
               <span className="small">To: {phone(draft.phone)}</span>
             </div>
           </div>
@@ -106,24 +107,29 @@ function Communication({ tenant }: { tenant: any }) {
 
 export function TenantDetail() {
   const { id = '' } = useParams();
-  const { can } = useAuth();
+  const { can, me } = useAuth();
   const navigate = useNavigate();
   const q = useApi(`/tenants/${id}`);
   const [tab, setTab] = useState<TenantTab>('overview');
-  const [dialog, setDialog] = useState<'' | 'edit' | 'blacklist' | 'unblacklist' | 'delete'>('');
+  const [dialog, setDialog] = useState<'' | 'edit' | 'room' | 'blacklist' | 'unblacklist' | 'delete'>('');
   const save = useAction((v: any) => api.patch(`/tenants/${id}`, v), 'Tenant updated.');
+  const assignRoom = useAction((v: any) => api.post('/contracts', { ...v, tenantId: id, endDate: v.startDate, activate: true, withLease: false }), 'Room assigned. Rent is now billed and payments can be recorded.');
+  const rooms = useApi('/rooms/map', undefined, dialog === 'room');
   const status = useAction((v: any) => api.post(`/tenants/${id}/status`, v), 'Tenant status changed.');
   const del = useAction(() => api.del(`/tenants/${id}`), 'Tenant deleted.');
   if (q.error) return <ErrorBox error={q.error} />;
   if (!q.data) return <Loading />;
   const t = q.data;
   const current = t.currentContracts[0];
+  const noContract = t.currentContracts.find((c: any) => !c.leaseStart);
   const payable = t.contracts.filter((c: any) => c.status !== 'DRAFT' && (c.billable || Number(c.outstanding) > 0));
   return (
     <div className="stack">
-      <PageHead title={<>{t.fullName} <Badge status={t.status} /></>} sub={<>{t.businessName ? `${t.businessName} · ` : ''}{phone(t.phone)} · ID {t.idNumber}</>}>
+      <PageHead title={<>{t.fullName} <Badge status={t.status} /></>} sub={[t.businessName, t.phone && phone(t.phone), t.idNumber && `ID ${t.idNumber}`].filter(Boolean).join(' · ') || undefined}>
         {can('payment.create') && payable.length > 0 && <Link className="btn primary" to={`/payments/new?contractId=${(payable.find((c: any) => Number(c.outstanding) > 0) ?? payable[0]).id}`}>Record payment</Link>}
-        {can('contract.manage') && t.status !== 'BLACKLISTED' && <Link className="btn" to={`/contracts/new?tenantId=${t.id}`}>New contract</Link>}
+        {can('contract.manage') && noContract && <Link className="btn" to={`/contracts/${noContract.id}`} title="Open the tenancy and press Give contract">Give contract</Link>}
+        {can('contract.manage') && t.status !== 'BLACKLISTED' && !t.currentContracts.length && <Button onClick={() => setDialog('room')}>Assign room</Button>}
+        {can('contract.manage') && t.status !== 'BLACKLISTED' && !noContract && <Link className="btn" to={`/contracts/new?tenantId=${t.id}`}>New contract</Link>}
         {can('tenant.manage') && <Button onClick={() => setDialog('edit')}>Edit</Button>}
         {can('data.delete') && <Button variant="ghost" onClick={() => setDialog('delete')}>Delete</Button>}
         {can('tenant.blacklist') && (t.status === 'BLACKLISTED' ? <Button onClick={() => setDialog('unblacklist')}>Remove from blacklist</Button> : <Button onClick={() => setDialog('blacklist')}>Blacklist</Button>)}
@@ -134,7 +140,7 @@ export function TenantDetail() {
 
       <div className="grid c4">
         <Stat k="Outstanding balance" v={<span style={{ color: Number(t.financial.outstanding) > 0 ? 'var(--red)' : undefined }}>{money(t.financial.outstanding)}</span>} s={`Overdue ${money(t.financial.overdue)}`} />
-        <Stat k="Monthly rent" v={money(t.financial.monthlyRent)} s={current ? `Contract ends ${date(current.endDate)}` : 'No current contract'} />
+        <Stat k="Monthly rent" v={money(t.financial.monthlyRent)} s={!current ? 'No room at the moment' : current.leaseStart ? `Contract ends ${date(current.endDate)}` : `Room ${current.room.number} · no contract yet`} />
         <Stat k="Total paid to date" v={money(t.financial.totalPaid)} s={t.financial.lastPayment ? `Last payment ${date(t.financial.lastPayment.paidAt)} · ${money(t.financial.lastPayment.amount)}` : 'No payments yet'} />
         <Stat k="Advance credit" v={money(t.financial.credit)} s="Paid but not yet applied to a month" />
       </div>
@@ -145,14 +151,14 @@ export function TenantDetail() {
           <div className="card-body grid c2">
             <div className="stack">
               <h3>Tenant profile</h3>
-              <DL items={[['Full name', t.fullName], ['Phone', phone(t.phone)], [label(t.idType), t.idNumber], ['E-mail', t.email || '—'], ['Business', t.businessName || '—'], ['TIN', t.tin || '—'], ['Lives in', [t.village && `Umudugudu ${t.village}`, t.cell && `Akagari ${t.cell}`, t.sector && `Umurenge ${t.sector}`, t.district && `Akarere ${t.district}`].filter(Boolean).join(', ') || '—'], ['Address', t.address || '—'], ['Emergency contact', t.emergencyContactName ? `${t.emergencyContactName} · ${phone(t.emergencyContactPhone)}` : '—'], ['Notes', t.notes || '—'], ['Registered', date(t.createdAt)]]} />
+              <DL items={[['Full name', t.fullName], ['Phone', phone(t.phone)], [label(t.idType), t.idNumber || '—'], ['E-mail', t.email || '—'], ['Business', t.businessName || '—'], ['TIN', t.tin || '—'], ['Lives in', [t.village && `Umudugudu ${t.village}`, t.cell && `Akagari ${t.cell}`, t.sector && `Umurenge ${t.sector}`, t.district && `Akarere ${t.district}`].filter(Boolean).join(', ') || '—'], ['Address', t.address || '—'], ['Emergency contact', t.emergencyContactName ? `${t.emergencyContactName} · ${phone(t.emergencyContactPhone)}` : '—'], ['Notes', t.notes || '—'], ['Registered', date(t.createdAt)]]} />
             </div>
             <div className="stack">
               <h3>Current occupancy</h3>
-              {t.currentContracts.length === 0 ? <Empty title="No current room">This tenant has no active contract.</Empty> : t.currentContracts.map((c: any) => (
+              {t.currentContracts.length === 0 ? <Empty title="No current room">This tenant does not rent a room at the moment.</Empty> : t.currentContracts.map((c: any) => (
                 <DL key={c.id} items={[
                   ['Building', c.building.name], ['Floor', c.floor.name], ['Room', <Link to={`/rooms/${c.room.id}`}>{c.room.number}</Link>], ['Monthly rent', money(c.monthlyRent)],
-                  ['Contract', <><Link to={`/contracts/${c.id}`}>{c.contractNumber}</Link> <Badge status={c.status} /></>], ['Period', `${date(c.startDate)} – ${date(c.endDate)}`],
+                  ['Contract', <><Link to={`/contracts/${c.id}`}>{c.contractNumber}</Link> <Badge status={c.status} />{!c.leaseStart && <> <Badge status="PENDING" text="No contract" /></>}</>], ['Period', tenancyPeriod(c)],
                 ]} />
               ))}
             </div>
@@ -163,7 +169,7 @@ export function TenantDetail() {
         {tab === 'contract' && (
           <Table rows={t.contracts} onRow={(c: any) => navigate(`/contracts/${c.id}`)} empty={<Empty title="No contracts" />} columns={[
             { header: 'Contract', cell: (c: any) => c.contractNumber }, { header: 'Room', cell: (c: any) => `${c.room.number} · ${c.building.name}` },
-            { header: 'Period', cell: (c: any) => `${date(c.startDate)} – ${date(c.terminatedOn ?? c.endDate)}` }, { header: 'Rent', num: true, cell: (c: any) => money(c.monthlyRent) },
+            { header: 'Period', cell: (c: any) => tenancyPeriod(c) }, { header: 'Rent', num: true, cell: (c: any) => money(c.monthlyRent) },
             { header: 'Outstanding', num: true, cell: (c: any) => money(c.outstanding) }, { header: 'Status', cell: (c: any) => <Badge status={c.status} /> },
           ]} />
         )}
@@ -177,6 +183,18 @@ export function TenantDetail() {
           <AutoForm fields={TENANT_FIELDS} initial={Object.fromEntries(TENANT_FIELDS.map((f) => [f.name, t[f.name] ?? '']))} onCancel={() => setDialog('')} onSubmit={async (v) => { await save.mutateAsync(v); setDialog(''); }} />
         </Modal>
       )}
+      {dialog === 'room' && (
+        <Modal title={`Assign a room to ${t.fullName}`} onClose={() => setDialog('')}>
+          {!rooms.data ? <Loading /> : (
+            <AutoForm submitLabel="Assign room" onCancel={() => setDialog('')} initial={{ startDate: me!.organization.today }} fields={[
+              { name: 'roomId', label: 'Room', type: 'select', required: true, options: vacantRoomOptions(rooms.data), placeholder: 'Choose a vacant room…' },
+              { name: 'startDate', label: 'Moved in on', type: 'date', required: true, hint: 'Rent is counted from this day.' },
+            ]} onSubmit={async (v) => { await assignRoom.mutateAsync(v); setDialog(''); }}>
+              <p className="muted small">No contract is made. {t.fullName} rents the room, rent is billed every month and you can record payments. You can give a contract later, whenever you decide.</p>
+            </AutoForm>
+          )}
+        </Modal>
+      )}
       {dialog === 'delete' && (
         <Confirm title={`Delete ${t.fullName}?`} danger confirmLabel="Delete permanently" onClose={() => setDialog('')} onConfirm={async () => { await del.mutateAsync(undefined as never); navigate('/tenants'); }}>
           {t.contracts.some((c: any) => c.status !== 'DRAFT') ? `${t.fullName} has contracts, so their rent and payment records must be kept and they cannot be deleted — you will be shown the details. If they have left, terminate the contract and they will be listed as Former.` : `${t.fullName} has no contracts or payments and will be removed permanently, with their documents.`}
@@ -184,6 +202,51 @@ export function TenantDetail() {
       )}
       {dialog === 'blacklist' && <Confirm title={`Blacklist ${t.fullName}?`} confirmLabel="Blacklist tenant" danger reason="Reason (kept on record)" onClose={() => setDialog('')} onConfirm={(reason) => status.mutateAsync({ status: 'BLACKLISTED', reason })}>A blacklisted tenant cannot be given a new contract or have one renewed. This action is recorded in the audit log.</Confirm>}
       {dialog === 'unblacklist' && <Confirm title="Remove from blacklist?" confirmLabel="Remove from blacklist" reason="Reason" onClose={() => setDialog('')} onConfirm={(reason) => status.mutateAsync({ status: t.currentContracts.length ? 'BLACKLISTED' : 'FORMER', reason })}>{t.fullName} will be able to receive contracts again.</Confirm>}
+    </div>
+  );
+}
+
+/** Vacant rooms of the room map as select options: "Building · Floor · Room 12 — 150,000 RWF". */
+function vacantRoomOptions(map: any): Array<{ value: string; label: string }> {
+  return (map?.buildings ?? []).flatMap((b: any) => b.floors.flatMap((f: any) => f.rooms.filter((r: any) => r.status === 'VACANT')
+    .map((r: any) => ({ value: r.id, label: `${b.name} · ${f.name} · Room ${r.number} — ${money(r.monthlyRent)}` }))));
+}
+
+/**
+ * Registers a tenant with as little as a name, and optionally the room they rent. No contract is made:
+ * rent is billed and payments are recorded as usual, and a contract can be given later from the tenancy page.
+ */
+export function RegisterTenant() {
+  const { can, me } = useAuth();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [params] = useSearchParams();
+  const canAssign = can('contract.manage');
+  const rooms = useApi('/rooms/map', undefined, canAssign);
+  if (canAssign && !rooms.data) return rooms.error ? <ErrorBox error={rooms.error} /> : <Loading />;
+  return (
+    <div className="stack">
+      <PageHead title="Add tenant" sub="Only the name is required. The other details can be added now or later.">
+        {canAssign && <Link className="btn" to="/contracts/new" title="The step-by-step form that also makes the contract">Register with a contract instead</Link>}
+      </PageHead>
+      <Card>
+        <AutoForm submitLabel="Save tenant" onCancel={() => navigate(-1)} initial={{ roomId: params.get('roomId') ?? '', startDate: me!.organization.today, idType: 'NATIONAL_ID' }} fields={[
+          TENANT_FIELDS[0]!,
+          ...(canAssign ? [
+            { name: 'roomId', label: 'Room', type: 'select' as const, options: vacantRoomOptions(rooms.data), placeholder: 'No room yet', hint: 'Only vacant rooms are listed.' },
+            { name: 'startDate', label: 'Moved in on', type: 'date' as const, required: true, when: (v: any) => Boolean(v.roomId), hint: 'Rent is counted from this day.' },
+          ] : []),
+          ...TENANT_FIELDS.slice(1),
+        ]} onSubmit={async (v) => {
+          const created = await api.post('/tenants', v);
+          await qc.invalidateQueries();
+          toast(v.roomId ? `${created.fullName} registered and now rents the room. Record their payments from their page.` : `${created.fullName} registered.`);
+          navigate(`/tenants/${created.id}`);
+        }}>
+          <div className="alert blue"><div>No contract is made here. The tenant rents the room, rent is billed every month and you can record their payments. Whenever you decide to give them a contract, open their tenancy and press <strong>Give contract</strong> — you choose its start date then.</div></div>
+        </AutoForm>
+      </Card>
     </div>
   );
 }

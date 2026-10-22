@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth, useMeta } from '../auth';
-import { addDaysIso, date, money, percent } from '../format';
+import { addDaysIso, date, money, percent, tenancyPeriod } from '../format';
 import { I } from '../icons';
 import { DocumentsPanel, LedgerTable, PaymentsTable, TimelinePanel, useAction, useApi } from '../shared';
 import { AutoForm, Badge, type FieldDef, Button, Card, Confirm, DL, Empty, enumOpts, ErrorBox, Loading, Modal, opts, PageHead, Pager, Select, Stat, Table, Tabs, TextInput, useDebounced } from '../ui';
@@ -238,7 +238,8 @@ export function RoomDetail() {
     <div className="stack">
       <PageHead title={<>Room {r.number} <Badge status={r.status} /></>} sub={<>{r.building.name} · {r.floor.name} · {r.roomType}</>}>
         {current && can('payment.create') && <Link className="btn primary" to={`/payments/new?contractId=${current.id}`}>Record payment</Link>}
-        {r.status === 'VACANT' && can('contract.manage') && <Link className="btn primary" to={`/contracts/new?roomId=${r.id}`}>Assign tenant</Link>}
+        {r.status === 'VACANT' && can('tenant.manage') && can('contract.manage') && <Link className="btn primary" to={`/tenants/new?roomId=${r.id}`}>Register tenant here</Link>}
+        {r.status === 'VACANT' && can('contract.manage') && <Link className="btn" to={`/contracts/new?roomId=${r.id}`}>Assign tenant with a contract</Link>}
         {r.status === 'RESERVED' && can('contract.manage') && <Link className="btn primary" to={`/contracts/new?roomId=${r.id}${activeReservation?.tenantId ? `&tenantId=${activeReservation.tenantId}` : ''}`}>Convert reservation to contract</Link>}
         {r.status === 'VACANT' && can('room.manage') && <Button onClick={() => setDialog('reserve')}>Reserve</Button>}
         {can('room.rent.manage') && <Button onClick={() => setDialog('rent')}>Change rent</Button>}
@@ -249,7 +250,7 @@ export function RoomDetail() {
       <div className="grid c4">
         <Stat k="Monthly rent" v={money(r.monthlyRent)} s={`Deposit required ${money(r.depositRequired)}`} />
         <Stat k="Current tenant" v={current ? <Link to={`/tenants/${current.tenant.id}`}>{current.tenant.fullName}</Link> : '—'} s={current ? current.tenant.phone : r.status === 'VACANT' ? 'Available for a new tenant' : undefined} />
-        <Stat k="Contract" v={current ? <Link to={`/contracts/${current.id}`}>{current.contractNumber}</Link> : '—'} s={current ? <>{date(current.startDate)} – {date(current.endDate)} <Badge status={current.status} /></> : undefined} />
+        <Stat k="Contract" v={current ? <Link to={`/contracts/${current.id}`}>{current.contractNumber}</Link> : '—'} s={current ? <>{tenancyPeriod(current)} <Badge status={current.status} /></> : undefined} />
         <Stat k="Current balance" v={<span style={{ color: Number(r.financial.outstanding) > 0 ? 'var(--red)' : undefined }}>{money(r.financial.outstanding)}</span>} s={<>Overdue {money(r.financial.overdue)}{Number(r.financial.credit) > 0 && <> · advance credit {money(r.financial.credit)}</>}</>} />
       </div>
 
@@ -282,7 +283,7 @@ export function RoomDetail() {
         {tab === 'contract' && (
           <Table rows={r.contracts} onRow={(c: any) => navigate(`/contracts/${c.id}`)} empty={<Empty title="No contracts">This room has never been let.</Empty>} columns={[
             { header: 'Contract', cell: (c: any) => c.contractNumber }, { header: 'Tenant', cell: (c: any) => c.tenant.fullName },
-            { header: 'Period', cell: (c: any) => `${date(c.startDate)} – ${date(c.terminatedOn ?? c.endDate)}` }, { header: 'Rent', num: true, cell: (c: any) => money(c.monthlyRent) },
+            { header: 'Period', cell: (c: any) => tenancyPeriod(c) }, { header: 'Rent', num: true, cell: (c: any) => money(c.monthlyRent) },
             { header: 'Status', cell: (c: any) => <Badge status={c.status} /> },
           ]} />
         )}

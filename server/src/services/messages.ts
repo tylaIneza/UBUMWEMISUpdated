@@ -93,6 +93,7 @@ export async function createMessage(actor: Actor, input: { tenantId: string; con
     error = result.reason ?? null;
   } else if (input.channel === 'SMS') {
     if (!isSmsConfigured()) throw badRequest('SMS delivery is not configured on this server. Use “Open in SMS app” or copy the message.', 'CHANNEL_UNAVAILABLE');
+    if (!tenant.phone) throw badRequest(`${tenant.fullName} has no phone number on file.`, 'NO_PHONE');
     const result = await sendSms(tenant.phone, body);
     status = result.sent ? 'SENT' : 'FAILED';
     error = result.reason ?? null;

@@ -203,7 +203,7 @@ describe('input handling', () => {
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VALIDATION');
     // Field-level problems are reported together; the ID-number format is checked once those are fixed.
-    expect(Object.keys(res.body.error.details.fields).sort()).toEqual(['cell', 'district', 'fullName', 'phone', 'sector', 'tin', 'village']);
+    expect(Object.keys(res.body.error.details.fields).sort()).toEqual(['fullName', 'phone']);
     expect((await s.manager.post('/payments', { ...payment(), amount: -50 })).status).toBe(400);
     expect((await s.manager.post('/payments', { ...payment(), amount: '1e9' })).status).toBe(400);
     expect((await s.manager.get('/rooms/not-a-uuid')).status).toBe(400);

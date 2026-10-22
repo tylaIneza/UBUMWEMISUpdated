@@ -282,7 +282,7 @@ export async function listRooms(orgId: string, f: RoomFilter) {
         floor: { select: { id: true, name: true, level: true } },
         contracts: {
           where: { status: { in: [...OCCUPYING_STATUSES] } },
-          select: { id: true, contractNumber: true, status: true, startDate: true, endDate: true, monthlyRent: true, tenant: { select: { id: true, fullName: true, phone: true } } },
+          select: { id: true, contractNumber: true, status: true, startDate: true, endDate: true, leaseStart: true, monthlyRent: true, tenant: { select: { id: true, fullName: true, phone: true } } },
         },
       },
     }),

@@ -153,7 +153,7 @@ describe('deposits, messages, scheduler, search', () => {
     const payment = await pay(w, 'CASHIER', contract.id, 5000, { methodId: w.methods.BANK, reference: 'BKREF-99887' });
     const types = async (q: string, role: keyof World['actors'] = 'MANAGEMENT') => (await globalSearch(w.actors[role], q)).map((h) => `${h.type}:${h.id}`);
     expect(await types(tenant.fullName)).toContain(`tenant:${tenant.id}`);
-    expect(await types(tenant.phone.slice(-6))).toContain(`tenant:${tenant.id}`);
+    expect(await types(tenant.phone!.slice(-6))).toContain(`tenant:${tenant.id}`);
     expect(await types(contract.contractNumber)).toContain(`contract:${contract.id}`);
     expect(await types(payment.receipt!.receiptNumber)).toContain(`payment:${payment.id}`);
     expect(await types('BKREF-998')).toContain(`payment:${payment.id}`);

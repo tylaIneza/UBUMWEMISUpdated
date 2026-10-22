@@ -495,8 +495,9 @@ model Tenant {
   orgId                 String       @db.Char(36)
   fullName              String       @db.VarChar(160)
   idType                String       @default("NATIONAL_ID") @db.VarChar(20)
-  idNumber              String       @db.VarChar(40)
-  phone                 String       @db.VarChar(40)
+  /// Optional until the tenant is given a contract; printed on the lease (as a blank line when missing).
+  idNumber              String?      @db.VarChar(40)
+  phone                 String?      @db.VarChar(40)
   email                 String?      @db.VarChar(160)
   address               String?      @db.VarChar(255)
   businessName          String?      @db.VarChar(160)
@@ -540,7 +541,11 @@ model Contract {
   floorId           String         @db.Char(36)
   buildingId        String         @db.Char(36)
   startDate         DateTime       @db.Date
+  /// For a tenancy without a contract (leaseStart null) this is OPEN_END: the tenancy runs until move-out.
   endDate           DateTime       @db.Date
+  /// First day of the signed lease. Null = the tenant occupies the room and pays rent without a contract yet;
+  /// "Give contract" sets it (on or after startDate) together with the lease's endDate.
+  leaseStart        DateTime?      @db.Date
   /// Current contractual rent. History is in contract_rent_rates.
   monthlyRent       Decimal        @db.Decimal(14, 2)
   /// The room's standard rent at signing; differs from monthlyRent only for tenant-specific rent.

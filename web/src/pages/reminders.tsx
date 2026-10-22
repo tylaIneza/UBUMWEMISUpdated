@@ -62,7 +62,7 @@ export function Reminders() {
                       <td>
                         <div className="row end" style={{ flexWrap: 'nowrap' }}>
                           <Button size="sm" variant="ghost" onClick={() => setOpen(open === i.contractId ? null : i.contractId)} aria-expanded={open === i.contractId}>{open === i.contractId ? 'Hide' : 'Message'}</Button>
-                          <a className="btn sm" href={smsLink(i.phone, i.message)} onClick={() => log.mutate({ tenantId: i.tenantId, contractId: i.contractId })}>Open in SMS app</a>
+                          {i.phone && <a className="btn sm" href={smsLink(i.phone, i.message)} onClick={() => log.mutate({ tenantId: i.tenantId, contractId: i.contractId })}>Open in SMS app</a>}
                           <Button size="sm" onClick={async () => { await navigator.clipboard.writeText(i.message); log.mutate({ tenantId: i.tenantId, contractId: i.contractId }); toast('Message copied.'); }}>Copy</Button>
                         </div>
                       </td>

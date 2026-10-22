@@ -72,6 +72,8 @@ const PLACEHOLDERS: Record<string, string> = {
 async function contractValues(orgId: string, id: string) {
   const c = await prisma.contract.findFirst({ where: { id, orgId }, include: { tenant: true, room: true, building: true } });
   if (!c) throw notFound('Contract');
+  if (!c.leaseStart) throw new AppError(409, 'NO_CONTRACT', `${c.tenant.fullName} has no contract yet. Give them a contract first (Give contract), then print it.`);
+  const lease = c.leaseStart;
   const t = c.tenant;
   const b = c.building;
   const rent = Number(money(c.monthlyRent));
@@ -81,7 +83,7 @@ async function contractValues(orgId: string, id: string) {
     tenantName: t.fullName,
     idNumber: t.idNumber,
     district: t.district, sector: t.sector, cell: t.cell, village: t.village,
-    phone: localPhone(t.phone),
+    phone: t.phone ? localPhone(t.phone) : null,
     tenantTin: t.tin,
     email: t.email,
     roomNumber: c.room.number,
@@ -92,8 +94,8 @@ async function contractValues(orgId: string, id: string) {
     paymentDay: String(c.paymentDueDay),
     // Ingingo 8: the written lease always covers one whole year from the start date (a renewal's own start, or a
     // corrected start), whatever the tenant has paid so far — the contract's end date in the system follows payments.
-    startDate: RW_DATE(c.startDate),
-    endDate: RW_DATE(new Date(Date.UTC(c.startDate.getUTCFullYear() + 1, c.startDate.getUTCMonth(), c.startDate.getUTCDate() - 1))),
+    startDate: RW_DATE(lease),
+    endDate: RW_DATE(new Date(Date.UTC(lease.getUTCFullYear() + 1, lease.getUTCMonth(), lease.getUTCDate() - 1))),
     signedDate: RW_DATE(c.createdAt),
     // The landlord: the company that owns this building (Buildings → Edit → company details).
     lessorName: b.companyName, managerName: b.managerName, lessorTin: b.tin, lessorPhone: b.phone, lessorEmail: b.email,

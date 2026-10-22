@@ -13,6 +13,9 @@ import { getOrg } from './org.js';
 import { OCCUPYING_STATUSES, roomRentOn } from './property.js';
 import { nextDocumentNumber } from './sequences.js';
 
+/** End date of a tenancy without a contract: it runs until the tenant moves out or is given a contract. */
+export const OPEN_END = new Date(Date.UTC(2099, 11, 31));
+
 export interface ContractInput {
   tenantId: string;
   roomId: string;
@@ -29,6 +32,8 @@ export interface ContractInput {
   activate: boolean;
   /** Import only: first month to bill in this system. */
   billingStart?: Date;
+  /** false = the tenant occupies the room without a contract (endDate is ignored and the tenancy is open-ended). */
+  withLease?: boolean;
 }
 
 const isOccupying = (status: string) => (OCCUPYING_STATUSES as readonly string[]).includes(status);
@@ -73,8 +78,10 @@ export async function createContract(actor: Actor, input: ContractInput) {
 export async function createContractTx(tx: Tx, actor: Actor, input: ContractInput) {
   const org = await getOrg(actor.orgId, tx);
   const today = businessDate(org.timezone);
-  if (input.endDate < input.startDate) throw badRequest('The contract end date must be on or after the start date.', 'INVALID_DATES');
-  if (daysBetween(input.startDate, input.endDate) > 366 * 20) throw badRequest('The contract period is unrealistically long. Check the dates.', 'INVALID_DATES');
+  const withLease = input.withLease ?? true;
+  if (!withLease) input = { ...input, endDate: OPEN_END };
+  else if (input.endDate < input.startDate) throw badRequest('The contract end date must be on or after the start date.', 'INVALID_DATES');
+  if (withLease && daysBetween(input.startDate, input.endDate) > 366 * 20) throw badRequest('The contract period is unrealistically long. Check the dates.', 'INVALID_DATES');
 
   {
     await lockRoom(tx, input.roomId);
@@ -102,7 +109,7 @@ export async function createContractTx(tx: Tx, actor: Actor, input: ContractInpu
     const contract = await tx.contract.create({
       data: {
         orgId: actor.orgId, contractNumber, tenantId: tenant.id, roomId: room.id, floorId: room.floorId, buildingId: room.buildingId,
-        startDate: input.startDate, endDate: input.endDate, monthlyRent, roomRentAtSigning: roomRent,
+        startDate: input.startDate, endDate: input.endDate, leaseStart: withLease ? input.startDate : null, monthlyRent, roomRentAtSigning: roomRent,
         rentOverrideReason: overridden ? input.rentOverrideReason!.trim() : null,
         depositAmount: input.depositAmount ?? money(room.depositRequired),
         paymentDueDay: input.paymentDueDay ?? org.defaultDueDay, graceDays: input.graceDays ?? org.defaultGraceDays,
@@ -113,7 +120,9 @@ export async function createContractTx(tx: Tx, actor: Actor, input: ContractInpu
     if (input.activate) await occupy(tx, actor, contract, reservationId, today);
     await audit(tx, actor, {
       action: 'CONTRACT_CREATED', entityType: 'Contract', entityId: contract.id,
-      summary: `Contract ${contractNumber} ${input.activate ? 'activated' : 'drafted'}: ${tenant.fullName} → room ${room.number} (${room.building.name}), ${isoDate(input.startDate)} – ${isoDate(input.endDate)}, rent ${formatMoney(monthlyRent)}`,
+      summary: withLease
+        ? `Contract ${contractNumber} ${input.activate ? 'activated' : 'drafted'}: ${tenant.fullName} → room ${room.number} (${room.building.name}), ${isoDate(input.startDate)} – ${isoDate(input.endDate)}, rent ${formatMoney(monthlyRent)}`
+        : `Tenancy ${contractNumber} without a contract: ${tenant.fullName} → room ${room.number} (${room.building.name}) from ${isoDate(input.startDate)}, rent ${formatMoney(monthlyRent)}`,
       newValue: contract,
     });
     if (overridden) {
@@ -240,6 +249,11 @@ export async function correctContractDates(actor: Actor, id: string, input: { st
       throw conflict(before.status === 'DRAFT' ? 'Change the dates of a draft with Edit terms.' : `This contract is ${before.status.toLowerCase()}, so its dates can no longer be corrected.`, 'NOT_ACTIVE');
     }
     if (!input.reason.trim()) throw badRequest('Give a reason for correcting the dates.', 'REASON_REQUIRED');
+    // Without a contract only the move-in day can change; the tenancy stays open-ended.
+    if (!before.leaseStart) input = { ...input, endDate: OPEN_END };
+    else if (before.leaseStart > before.startDate && input.startDate > before.leaseStart) {
+      throw badRequest(`The tenant cannot move in after their contract starts (${isoDate(before.leaseStart)}).`, 'INVALID_DATES');
+    }
     if (input.endDate < input.startDate) throw badRequest('The end date must be on or after the start date.', 'INVALID_DATES');
     if (input.endDate < today) throw badRequest('The end date cannot be in the past. To end the tenancy, terminate or renew the contract.', 'INVALID_DATES');
     if (before.startDate.getTime() === input.startDate.getTime() && before.endDate.getTime() === input.endDate.getTime()) return before;
@@ -254,7 +268,11 @@ export async function correctContractDates(actor: Actor, id: string, input: { st
 
     const contract = await tx.contract.update({
       where: { id },
-      data: { startDate: input.startDate, endDate: input.endDate, status: input.endDate < today ? 'EXPIRED' : input.endDate <= addDays(today, org.expiringSoonDays) ? 'EXPIRING' : 'ACTIVE' },
+      data: {
+        startDate: input.startDate, endDate: input.endDate,
+        // A contract given at move-in moves with the move-in day; one given later keeps its own start.
+        leaseStart: before.leaseStart && before.leaseStart.getTime() === before.startDate.getTime() ? input.startDate : before.leaseStart,
+        status: input.endDate < today ? 'EXPIRED' : input.endDate <= addDays(today, org.expiringSoonDays) ? 'EXPIRING' : 'ACTIVE' },
     });
     // Re-bill every month that is no longer in the period, or whose rent or due date is different now.
     const first = startOfMonth(input.startDate);
@@ -383,6 +401,7 @@ export async function renewContract(actor: Actor, id: string, input: RenewalInpu
     await lockContract(tx, id);
     const old = await tx.contract.findUniqueOrThrow({ where: { id }, include: { tenant: true, room: true } });
     if (!isOccupying(old.status)) throw conflict(`This contract is ${old.status.toLowerCase()} and cannot be renewed.`, 'NOT_ACTIVE');
+    if (!old.leaseStart) throw conflict(`${old.tenant.fullName} has no contract yet, so there is nothing to renew. Use “Give contract” instead.`, 'NO_CONTRACT');
     if (old.tenant.status === 'BLACKLISTED') throw conflict(`${old.tenant.fullName} is blacklisted; the contract cannot be renewed.`, 'TENANT_BLACKLISTED');
     const startDate = addDays(old.endDate, 1);
     if (input.endDate < startDate) throw badRequest(`The new end date must be after ${isoDate(old.endDate)}, when the current contract ends.`, 'INVALID_DATES');
@@ -399,7 +418,7 @@ export async function renewContract(actor: Actor, id: string, input: RenewalInpu
     const renewed = await tx.contract.create({
       data: {
         orgId: actor.orgId, contractNumber, tenantId: old.tenantId, roomId: old.roomId, floorId: old.floorId, buildingId: old.buildingId,
-        startDate, endDate: input.endDate, monthlyRent, roomRentAtSigning: roomRent,
+        startDate, endDate: input.endDate, leaseStart: startDate, monthlyRent, roomRentAtSigning: roomRent,
         rentOverrideReason: monthlyRent.equals(roomRent) ? null : (input.rentChangeReason?.trim() ?? old.rentOverrideReason),
         depositAmount: old.depositAmount, paymentDueDay: input.paymentDueDay ?? old.paymentDueDay, graceDays: input.graceDays ?? old.graceDays,
         specialTerms: input.specialTerms ?? old.specialTerms, status: 'ACTIVE', activatedAt: new Date(), renewedFromId: old.id, createdById: actor.userId,
@@ -424,6 +443,41 @@ export async function renewContract(actor: Actor, id: string, input: RenewalInpu
       oldValue: { status: old.status, endDate: isoDate(old.endDate), monthlyRent: old.monthlyRent }, newValue: { renewedTo: renewed.id, contractNumber, endDate: isoDate(input.endDate), monthlyRent },
     });
     return renewed;
+  });
+}
+
+/**
+ * Gives a contract to a tenant who has been occupying the room without one. The tenancy record simply gains
+ * its lease dates, so rent already billed, payments, advance credit and the deposit all stay exactly as they are;
+ * the printed contract uses the lease dates. The contract may start on the move-in day or later.
+ */
+export async function giveContract(actor: Actor, id: string, input: { startDate: Date; endDate: Date }) {
+  const org = await getOrg(actor.orgId);
+  const today = businessDate(org.timezone);
+  return inTransaction(async (tx) => {
+    const found = await tx.contract.findFirst({ where: { id, orgId: actor.orgId } });
+    if (!found) throw notFound('Contract');
+    await lockContract(tx, id);
+    const before = await tx.contract.findUniqueOrThrow({ where: { id }, include: { tenant: true } });
+    if (before.leaseStart) throw conflict('This tenant already has a contract. Renew it instead.', 'HAS_CONTRACT');
+    if (!isOccupying(before.status)) throw conflict(`This tenancy is ${before.status.toLowerCase()}, so a contract can no longer be given.`, 'NOT_ACTIVE');
+    if (before.tenant.status === 'BLACKLISTED') throw conflict(`${before.tenant.fullName} is blacklisted and cannot be given a contract.`, 'TENANT_BLACKLISTED');
+    if (input.startDate < before.startDate) {
+      throw badRequest(`The contract cannot start before ${before.tenant.fullName} moved in (${isoDate(before.startDate)}). If the move-in day is wrong, correct it first.`, 'INVALID_DATES');
+    }
+    if (input.endDate < input.startDate) throw badRequest('The contract end date must be on or after the start date.', 'INVALID_DATES');
+    if (input.endDate < today) throw badRequest('The contract end date cannot be in the past.', 'INVALID_DATES');
+    if (daysBetween(input.startDate, input.endDate) > 366 * 20) throw badRequest('The contract period is unrealistically long. Check the dates.', 'INVALID_DATES');
+    const contract = await tx.contract.update({
+      where: { id },
+      data: { leaseStart: input.startDate, endDate: input.endDate, status: input.endDate <= addDays(today, org.expiringSoonDays) ? 'EXPIRING' : 'ACTIVE' },
+    });
+    await audit(tx, actor, {
+      action: 'CONTRACT_GIVEN', entityType: 'Contract', entityId: id,
+      summary: `Contract given to ${before.tenant.fullName} on tenancy ${before.contractNumber}: ${isoDate(input.startDate)} – ${isoDate(input.endDate)}`,
+      oldValue: { leaseStart: null, endDate: null }, newValue: { leaseStart: isoDate(input.startDate), endDate: isoDate(input.endDate) },
+    });
+    return contract;
   });
 }
 

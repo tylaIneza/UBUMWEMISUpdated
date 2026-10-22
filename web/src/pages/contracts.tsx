@@ -22,7 +22,7 @@ export function Contracts() {
   const rows = status === 'EXPIRING' ? (expiring.data && expired.data ? [...expired.data.items, ...expiring.data.items] : undefined) : list.data?.items;
   return (
     <div className="stack">
-      <PageHead title="Contracts" sub="Every occupancy is based on a contract. Contracts are terminated or renewed, never deleted.">
+      <PageHead title="Contracts" sub="Every tenant’s room, rent and payments, with or without a signed contract. Tenancies are ended or renewed, never deleted.">
         {can('contract.manage') && <Link to="/contracts/new" className="btn primary">Create contract</Link>}
       </PageHead>
       <ErrorBox error={list.error} />
@@ -35,10 +35,10 @@ export function Contracts() {
         <Table rows={rows} onRow={(c: any) => navigate(`/contracts/${c.id}`)} empty={<Empty title="No contracts found" />} columns={[
           { header: 'Contract', cell: (c: any) => <span className="strong">{c.contractNumber}</span> }, { header: 'Tenant', cell: (c: any) => c.tenant.fullName },
           { header: 'Room', cell: (c: any) => <>{c.room.number}<span className="muted small"> · {c.building.name}</span></> },
-          { header: 'Start', cell: (c: any) => date(c.startDate), hideSm: true }, { header: 'End', cell: (c: any) => date(c.terminatedOn ?? c.endDate) },
+          { header: 'Start', cell: (c: any) => date(c.startDate), hideSm: true }, { header: 'End', cell: (c: any) => c.terminatedOn ? date(c.terminatedOn) : c.leaseStart ? date(c.endDate) : <span className="muted">Open</span> },
           { header: 'Monthly rent', num: true, cell: (c: any) => money(c.monthlyRent), hideSm: true }, { header: 'Outstanding', num: true, cell: (c: any) => money(c.outstanding) },
           { header: 'Status', cell: (c: any) => <Badge status={c.status} /> },
-          { header: 'Contract', cell: (c: any) => c.renewedTo ? <Link className="btn sm" to={`/contracts/${c.renewedTo.id}`} onClick={(e) => e.stopPropagation()} title={`Renewed — the current contract is ${c.renewedTo.contractNumber}`}>→ {c.renewedTo.contractNumber}</Link> : !c.building.contractTemplate ? <span className="muted small" title={`No lease contract has been set up for ${c.building.name} yet`}>No contract yet</span> : <DownloadButton size="sm" path={`/contracts/${c.id}/document`} params={{ format: 'pdf' }} busyLabel="PDF…" title={`Download contract ${c.contractNumber} as PDF`}>⬇ PDF</DownloadButton> },
+          { header: 'Contract', cell: (c: any) => !c.leaseStart ? <Badge status="PENDING" text="No contract" /> : c.renewedTo ? <Link className="btn sm" to={`/contracts/${c.renewedTo.id}`} onClick={(e) => e.stopPropagation()} title={`Renewed — the current contract is ${c.renewedTo.contractNumber}`}>→ {c.renewedTo.contractNumber}</Link> : !c.building.contractTemplate ? <span className="muted small" title={`No lease contract has been set up for ${c.building.name} yet`}>No contract yet</span> : <DownloadButton size="sm" path={`/contracts/${c.id}/document`} params={{ format: 'pdf' }} busyLabel="PDF…" title={`Download contract ${c.contractNumber} as PDF`}>⬇ PDF</DownloadButton> },
         ]} />
         {status !== 'EXPIRING' && <Pager data={list.data} onPage={setPage} />}
       </Card>
@@ -47,7 +47,7 @@ export function Contracts() {
 }
 
 type Tab = 'overview' | 'ledger' | 'payments' | 'deposit' | 'documents' | 'history';
-type Dialog = '' | 'terminate' | 'renew' | 'rent' | 'adjust' | 'deposit' | 'deduct' | 'refund' | 'activate' | 'discard' | 'terms' | 'dates';
+type Dialog = '' | 'give' | 'terminate' | 'renew' | 'rent' | 'adjust' | 'deposit' | 'deduct' | 'refund' | 'activate' | 'discard' | 'terms' | 'dates';
 
 export function ContractDetail() {
   const { id = '' } = useParams();
@@ -70,37 +70,44 @@ export function ContractDetail() {
   const refund = post('/deposits/refund', approvalMsg('Refund approved and recorded.'));
   const activate = post('/activate', 'Contract activated.');
   const terms = useAction((v: any) => api.patch(`/contracts/${id}`, v), 'Contract terms updated.');
-  const dates = post('/dates', 'Contract dates corrected. Rent is now counted from the new start date.');
+  const dates = post('/dates', 'Dates corrected. Rent is now counted from the new start date.');
+  const give = post('/give', 'Contract given. You can now print it.');
   const discard = useAction(() => api.del(`/contracts/${id}`), 'Draft discarded.');
   if (q.error) return <ErrorBox error={q.error} />;
   if (!q.data) return <Loading />;
   const c = q.data;
   const occupying = ['ACTIVE', 'EXPIRING', 'EXPIRED'].includes(c.status);
+  // A tenant who rents the room without a contract yet: rent and payments work as usual, nothing can be printed.
+  const noLease = !c.leaseStart;
+  const oneYearFrom = (iso: string) => { const [y, m, d] = iso.split('-').map(Number) as [number, number, number]; return new Date(Date.UTC(y + 1, m - 1, d - 1)).toISOString().slice(0, 10); };
+  const giveFrom = today > c.startDate.slice(0, 10) ? today : c.startDate.slice(0, 10);
   const s = c.summary;
   const methods = opts(meta.data?.paymentMethods?.filter((m: any) => m.isActive));
   const nextMonth = `${today.slice(0, 7) === `${today.slice(0, 4)}-12` ? `${Number(today.slice(0, 4)) + 1}-01` : `${today.slice(0, 4)}-${String(Number(today.slice(5, 7)) + 1).padStart(2, '0')}`}-01`;
   const close = () => setDialog('');
   return (
     <div className="stack">
-      <PageHead title={<>{c.contractNumber} <Badge status={c.status} /></>} sub={<><Link to={`/tenants/${c.tenant.id}`}>{c.tenant.fullName}</Link> · Room <Link to={`/rooms/${c.room.id}`}>{c.room.number}</Link> · {c.floor.name}, {c.building.name}</>}>
+      <PageHead title={<>{c.contractNumber} <Badge status={c.status} />{noLease && <> <Badge status="PENDING" text="No contract" /></>}</>} sub={<><Link to={`/tenants/${c.tenant.id}`}>{c.tenant.fullName}</Link> · Room <Link to={`/rooms/${c.room.id}`}>{c.room.number}</Link> · {c.floor.name}, {c.building.name}</>}>
         {c.renewedTo && <Link className="btn primary" to={`/contracts/${c.renewedTo.id}`}>Go to current contract {c.renewedTo.contractNumber}</Link>}
-        {c.building.contractTemplate && <>
+        {noLease && occupying && can('contract.manage') && <Button variant="primary" onClick={() => setDialog('give')}>Give contract</Button>}
+        {c.building.contractTemplate && !noLease && <>
           <DownloadButton variant={c.renewedTo ? undefined : 'primary'} path={`/contracts/${c.id}/document`} params={{ format: 'pdf' }} busyLabel="Preparing PDF…" title={`The ${c.building.name} lease contract, filled with this tenant’s details, ready to print and sign`}>{c.renewedTo ? '⬇ Old contract (PDF)' : '⬇ Download contract (PDF)'}</DownloadButton>
           <DownloadButton path={`/contracts/${c.id}/document`} params={{ format: 'docx' }} title="Same contract as a Word file you can edit before printing">Word</DownloadButton>
         </>}
         {c.status !== 'DRAFT' && can('payment.create') && <Link className="btn" to={`/payments/new?contractId=${c.id}`}>Record payment</Link>}
 
         {c.status === 'DRAFT' && can('contract.manage') && <><Button variant="primary" onClick={() => setDialog('activate')}>Activate</Button><Button onClick={() => setDialog('discard')}>Discard draft</Button></>}
-        {occupying && can('contract.manage') && <Button onClick={() => setDialog('renew')}>Renew</Button>}
-        {occupying && can('contract.manage') && <Button onClick={() => setDialog('dates')} title="Set the day the tenant really started working; rent is counted again from that day">Correct dates</Button>}
+        {occupying && !noLease && can('contract.manage') && <Button onClick={() => setDialog('renew')}>Renew</Button>}
+        {occupying && can('contract.manage') && <Button onClick={() => setDialog('dates')} title="Set the day the tenant really started working; rent is counted again from that day">{noLease ? 'Correct move-in day' : 'Correct dates'}</Button>}
         {occupying && can('room.rent.manage') && <Button onClick={() => setDialog('rent')}>Change rent</Button>}
         {occupying && can('adjustment.request') && <Button onClick={() => setDialog('adjust')}>Discount / surcharge</Button>}
         {occupying && can('contract.manage') && <Button onClick={() => setDialog('terms')}>Edit terms</Button>}
         {occupying && can('contract.terminate') && <Button variant="danger" onClick={() => setDialog('terminate')}>Terminate</Button>}
       </PageHead>
-      {!c.building.contractTemplate && <Alert>No lease contract has been set up for <strong>{c.building.name}</strong> yet, so no contract can be printed for this tenant. Each building uses its own contract — the contract of another building is never given. Once {c.building.name}’s contract is added, choose it under <Link to="/buildings">Buildings</Link> → Edit {c.building.name} → Lease contract.</Alert>}
-      {c.building.contractTemplate && (() => { const b = c.building; const gaps = [['company name', b.companyName], ['manager', b.managerName], ['TIN', b.tin], ['phone', b.phone], ['e-mail', b.email], ['bank', b.bankName], ['bank account', b.bankAccount], ['UPI', b.upi], ['district', b.district], ['sector', b.sector], ['cell', b.cell], ['village', b.village]].filter(([, v]) => !v).map(([k]) => k); return gaps.length ? <Alert tone="blue">{b.name} has no {gaps.join(', ')} yet, so the contract will show dotted lines for the landlord’s {gaps.length === 1 ? 'detail' : 'details'}. Add them under <Link to="/buildings">Buildings</Link> → Edit {b.name}.</Alert> : null; })()}
-      {c.building.contractTemplate && (() => { const t = c.tenant; const gaps = [['District', t.district], ['Sector', t.sector], ['Cell', t.cell], ['Village', t.village], ['TIN', t.tin], ['E-mail', t.email]].filter(([, v]) => !v).map(([k]) => k); return gaps.length ? <Alert tone="blue">The printed contract will have blank lines (to fill by hand) for the tenant’s: {gaps.join(', ')}. To print them instead, <Link to={`/tenants/${t.id}`}>edit the tenant</Link> first.</Alert> : null; })()}
+      {noLease && <Alert tone="blue"><strong>{c.tenant.fullName} has no contract yet.</strong> They have rented room {c.room.number} since {date(c.startDate)}: rent is billed every month and payments are recorded as usual. Whenever you decide to give them a contract, press “Give contract” and choose its start date — the rent and payments recorded so far stay as they are.</Alert>}
+      {!noLease && !c.building.contractTemplate && <Alert>No lease contract has been set up for <strong>{c.building.name}</strong> yet, so no contract can be printed for this tenant. Each building uses its own contract — the contract of another building is never given. Once {c.building.name}’s contract is added, choose it under <Link to="/buildings">Buildings</Link> → Edit {c.building.name} → Lease contract.</Alert>}
+      {!noLease && c.building.contractTemplate && (() => { const b = c.building; const gaps = [['company name', b.companyName], ['manager', b.managerName], ['TIN', b.tin], ['phone', b.phone], ['e-mail', b.email], ['bank', b.bankName], ['bank account', b.bankAccount], ['UPI', b.upi], ['district', b.district], ['sector', b.sector], ['cell', b.cell], ['village', b.village]].filter(([, v]) => !v).map(([k]) => k); return gaps.length ? <Alert tone="blue">{b.name} has no {gaps.join(', ')} yet, so the contract will show dotted lines for the landlord’s {gaps.length === 1 ? 'detail' : 'details'}. Add them under <Link to="/buildings">Buildings</Link> → Edit {b.name}.</Alert> : null; })()}
+      {!noLease && c.building.contractTemplate && (() => { const t = c.tenant; const gaps = [['District', t.district], ['Sector', t.sector], ['Cell', t.cell], ['Village', t.village], ['TIN', t.tin], ['E-mail', t.email]].filter(([, v]) => !v).map(([k]) => k); return gaps.length ? <Alert tone="blue">The printed contract will have blank lines (to fill by hand) for the tenant’s: {gaps.join(', ')}. To print them instead, <Link to={`/tenants/${t.id}`}>edit the tenant</Link> first.</Alert> : null; })()}
       {c.renewedTo && <Alert tone="blue">This contract was renewed as <Link to={`/contracts/${c.renewedTo.id}`}>{c.renewedTo.contractNumber}</Link>. It is closed and keeps its old dates ({date(c.startDate)} – {date(c.endDate)}). To print the contract with the new dates, open {c.renewedTo.contractNumber} and download it there.</Alert>}
       {c.status === 'EXPIRED' && <Alert>This contract ended on {date(c.endDate)} but the tenant has not moved out. No further rent is being billed. Renew the contract or record the move-out.</Alert>}
       {c.status === 'EXPIRING' && <Alert tone="amber">This contract ends on {date(c.endDate)}. Renew it or prepare the move-out.</Alert>}
@@ -121,7 +128,8 @@ export function ContractDetail() {
               <h3>Contract</h3>
               <DL items={[
                 ['Contract number', c.contractNumber], ['Tenant', c.tenant.fullName], ['Building', c.building.name], ['Floor', c.floor.name], ['Room', c.room.number],
-                ['Start date', date(c.startDate)], ['End date', date(c.endDate)], ['Rent due', `Day ${c.paymentDueDay} of the month · ${c.graceDays} day(s) grace`], ['Special terms', c.specialTerms || '—'],
+                ['Start date', date(c.startDate)], ...(c.leaseStart && c.leaseStart !== c.startDate ? [['Contract starts', date(c.leaseStart)] as [string, string]] : []),
+                ['End date', noLease ? 'Open — no contract yet' : date(c.endDate)], ['Rent due', `Day ${c.paymentDueDay} of the month · ${c.graceDays} day(s) grace`], ['Special terms', c.specialTerms || '—'],
                 ...(c.rentOverrideReason ? [['Tenant-specific rent reason', c.rentOverrideReason] as [string, string]] : []),
                 ...(c.renewedFrom ? [['Renewal of', <Link to={`/contracts/${c.renewedFrom.id}`}>{c.renewedFrom.contractNumber}</Link>] as [string, any]] : []),
                 ...(c.renewedTo ? [['Renewed as', <Link to={`/contracts/${c.renewedTo.id}`}>{c.renewedTo.contractNumber}</Link>] as [string, any]] : []),
@@ -194,11 +202,22 @@ export function ContractDetail() {
       {dialog === 'dates' && (
         <Modal title={`Correct the dates of ${c.contractNumber}`} onClose={close}>
           <AutoForm submitLabel="Correct dates" onCancel={close} initial={{ startDate: c.startDate.slice(0, 10), endDate: c.endDate.slice(0, 10), reason: '' }} fields={[
-            { name: 'startDate', label: 'Day the tenant starts working', type: 'date', required: true, hint: `Now ${date(c.startDate)}. Rent and Ingingo 8 of the contract are counted from this day.` },
-            { name: 'endDate', label: 'End date', type: 'date', required: true, min: today, hint: `Now ${date(c.endDate)}. If you move the start, move the end too to keep the same length.` },
+            { name: 'startDate', label: 'Day the tenant starts working', type: 'date', required: true, hint: `Now ${date(c.startDate)}. Rent ${noLease ? 'is' : 'and Ingingo 8 of the contract are'} counted from this day.` },
+            ...(noLease ? [] : [{ name: 'endDate', label: 'End date', type: 'date' as const, required: true, min: today, hint: `Now ${date(c.endDate)}. If you move the start, move the end too to keep the same length.` }]),
             { name: 'reason', label: 'Reason', required: true, full: true, placeholder: 'e.g. The tenant started working on 15 October' },
           ]} onSubmit={async (v) => { await dates.mutateAsync(v); close(); }}>
             <div className="alert blue"><div>Months before the new start date (or after the new end date) stop being billed, and anything already paid for them becomes credit that pays the next rent. A first month that starts mid-month is billed in full, or only for its days if “Bill a partial first or last month by days” is on in Settings. Payments and receipts are not changed.</div></div>
+          </AutoForm>
+        </Modal>
+      )}
+      {dialog === 'give' && (
+        <Modal title={`Give ${c.tenant.fullName} a contract`} onClose={close}>
+          <AutoForm submitLabel="Give contract" onCancel={close} initial={{ startDate: giveFrom, endDate: oneYearFrom(giveFrom) }} fields={[
+            { name: 'startDate', label: 'Contract starts on', type: 'date', required: true, min: c.startDate.slice(0, 10), hint: `On or after ${date(c.startDate)}, when ${c.tenant.fullName} moved in.` },
+            { name: 'endDate', label: 'Contract ends on', type: 'date', required: true, min: today, hint: 'Usually one year, e.g. 01 Jan 2027 – 31 Dec 2027. If you change the start, change this too.' },
+          ]} onSubmit={async (v) => { await give.mutateAsync(v); close(); }}>
+            <div className="alert blue"><div>The rent, payments and deposit recorded so far stay exactly as they are. The printed contract uses these dates.</div></div>
+            {(() => { const t = c.tenant; const gaps = [['phone', t.phone], ['ID number', t.idNumber], ['TIN', t.tin], ['district', t.district], ['sector', t.sector], ['cell', t.cell], ['village', t.village]].filter(([, v]) => !v).map(([k]) => k); return gaps.length ? <div className="alert amber"><div>{t.fullName} has no {gaps.join(', ')} yet, so the printed contract will have blank lines there. <Link to={`/tenants/${t.id}`}>Edit the tenant</Link> to fill them in, before or after giving the contract.</div></div> : null; })()}
           </AutoForm>
         </Modal>
       )}

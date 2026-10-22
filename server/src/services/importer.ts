@@ -206,7 +206,7 @@ async function plan(actor: Actor, raw: Raw): Promise<Plan> {
   const floorKeys = new Set(dbFloors.map((f) => `${upper(f.building.code)}|${lower(f.name)}`));
   const floorLevels = new Set(dbFloors.map((f) => `${upper(f.building.code)}|${f.level}`));
   const roomKeys = new Map<string, 'db-vacant' | 'db-busy' | 'new'>(dbRooms.map((r) => [`${upper(r.building.code)}|${upper(r.number)}`, r.status === 'VACANT' ? 'db-vacant' : 'db-busy']));
-  const tenantIds = new Map<string, string>(dbTenants.map((t) => [normalizeIdNumber(t.idNumber), t.status]));
+  const tenantIds = new Map<string, string>(dbTenants.filter((t) => t.idNumber).map((t) => [normalizeIdNumber(t.idNumber!), t.status]));
 
   const rows = (name: SheetName) => raw[name] ?? [];
 

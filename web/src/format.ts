@@ -18,6 +18,11 @@ export function date(v: unknown): string {
   const [y, m, d] = s.split('-');
   return `${d} ${MONTHS[Number(m) - 1]} ${y}`;
 }
+/** The contract's period, or — for a tenant who has no contract yet — the day they moved in. */
+export function tenancyPeriod(c: { startDate: unknown; endDate: unknown; leaseStart?: unknown; terminatedOn?: unknown }): string {
+  if (!c.leaseStart) return `From ${date(c.startDate)}${c.terminatedOn ? ` to ${date(c.terminatedOn)}` : ''} · no contract`;
+  return `${date(c.leaseStart)} – ${date(c.terminatedOn ?? c.endDate)}`;
+}
 export function month(v: unknown): string {
   if (!v) return '—';
   const [y, m] = String(v).slice(0, 7).split('-');

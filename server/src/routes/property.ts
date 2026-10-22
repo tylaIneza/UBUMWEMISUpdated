@@ -117,19 +117,23 @@ propertyRouter.post('/reservations/:id/cancel', requirePermission('room.manage')
 
 const zTenant = z.object({
   fullName: zRequiredText(160, 'Full name'), idType: z.enum(['NATIONAL_ID', 'PASSPORT', 'OTHER']).optional(),
-  idNumber: zRequiredText(40, 'ID / passport number'), phone: zPhone,
+  // Only the name is required: the rest can be added later. The contract prints a blank line for anything missing.
+  idNumber: zTextNullable(40), phone: z.preprocess((v) => (v === '' ? null : v), zPhone.nullable().optional()),
   email: z.preprocess((v) => (v === '' ? null : v), zEmail.nullable().optional()), address: zTextNullable(255), businessName: zTextNullable(160),
-  // Printed on the lease, so they are required when a tenant is registered.
-  tin: zRequiredText(40, 'TIN number'), district: zRequiredText(80, 'District'), sector: zRequiredText(80, 'Sector'), cell: zRequiredText(80, 'Cell'), village: zRequiredText(80, 'Village'),
+  tin: zTextNullable(40), district: zTextNullable(80), sector: zTextNullable(80), cell: zTextNullable(80), village: zTextNullable(80),
   emergencyContactName: zTextNullable(160), emergencyContactPhone: z.preprocess((v) => (v === '' ? null : v), zPhone.nullable().optional()), notes: zTextNullable(4000),
 });
 
 /** On registration the ID number format is checked together with the other fields, so every problem shows at once. */
-const zNewTenant = zTenant.superRefine((t, ctx) => {
-  const problem = idNumberProblem(t.idType ?? 'NATIONAL_ID', t.idNumber);
+const zNewTenant = zTenant.extend({
+  // The room the tenant occupies from `startDate`, without a contract until one is given.
+  roomId: zOptionalId, startDate: zOptionalDate,
+}).superRefine((t, ctx) => {
+  const problem = t.idNumber ? idNumberProblem(t.idType ?? 'NATIONAL_ID', t.idNumber) : null;
   if (problem) ctx.addIssue({ code: 'custom', path: ['idNumber'], message: problem });
-  const tin = tinProblem(t.tin);
+  const tin = t.tin ? tinProblem(t.tin) : null;
   if (tin) ctx.addIssue({ code: 'custom', path: ['tin'], message: tin });
+  if (t.roomId && !t.startDate) ctx.addIssue({ code: 'custom', path: ['startDate'], message: 'Enter the day the tenant moved in.' });
 });
 
 propertyRouter.get('/tenants', requirePermission('tenant.view'), async (req, res) => {
@@ -153,7 +157,8 @@ propertyRouter.get('/tenants/check-tin', requirePermission('tenant.view'), async
 });
 
 propertyRouter.post('/tenants', requirePermission('tenant.manage'), async (req, res) => {
-  res.status(201).json(await tenants.createTenant(actorOf(req), zNewTenant.parse(req.body)));
+  const { roomId, startDate, ...tenant } = zNewTenant.parse(req.body);
+  res.status(201).json(await tenants.createTenant(actorOf(req), tenant, roomId && startDate ? { roomId, startDate } : undefined));
 });
 propertyRouter.get('/tenants/:id', requirePermission('tenant.view'), async (req, res) => {
   res.json(await tenants.tenantDetail(actorOf(req).orgId, zId.parse(req.params.id)));
@@ -184,6 +189,8 @@ propertyRouter.post('/contracts', requirePermission('contract.manage'), async (r
   const body = z.object({
     tenantId: zId, roomId: zId, startDate: zDate, endDate: zDate, monthlyRent: zOptionalMoney, rentOverrideReason: zText(255), depositAmount: zOptionalMoney,
     paymentDueDay: zDueDay.optional(), graceDays: zGrace.optional(), specialTerms: zText(8000), activate: z.boolean().default(true),
+    // false = the tenant rents the room without a contract (the end date is then ignored).
+    withLease: z.boolean().optional(),
   }).parse(req.body);
   res.status(201).json(await contracts.createContract(actorOf(req), body));
 });
@@ -226,6 +233,10 @@ propertyRouter.post('/contracts/:id/renew', requirePermission('contract.manage')
 propertyRouter.post('/contracts/:id/dates', requirePermission('contract.manage'), async (req, res) => {
   const body = z.object({ startDate: zDate, endDate: zDate, reason: zRequiredText(255, 'Reason') }).parse(req.body);
   res.json(await contracts.correctContractDates(actorOf(req), zId.parse(req.params.id), body));
+});
+propertyRouter.post('/contracts/:id/give', requirePermission('contract.manage'), async (req, res) => {
+  const body = z.object({ startDate: zDate, endDate: zDate }).parse(req.body);
+  res.json(await contracts.giveContract(actorOf(req), zId.parse(req.params.id), body));
 });
 propertyRouter.post('/contracts/:id/rent', requirePermission('room.rent.manage'), async (req, res) => {
   const body = z.object({ amount: zPositiveMoney, effectiveFrom: zDate, reason: zRequiredText(255, 'Reason') }).parse(req.body);

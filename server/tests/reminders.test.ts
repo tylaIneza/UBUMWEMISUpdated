@@ -16,10 +16,10 @@ afterAll(() => {
 });
 
 describe('tenant phone numbers', () => {
-  it('requires a phone number and stores Rwandan numbers as +250…', async () => {
+  it('stores Rwandan numbers as +250…; the phone number is optional', async () => {
     const staff = await loginAs(w.emails.PROPERTY_STAFF);
     const missing = await staff.post('/tenants', { fullName: 'No Phone', idNumber: rwandanId(), ...tenantDetails() });
-    expect([missing.status, Object.keys(missing.body.error.details.fields)]).toEqual([400, ['phone']]);
+    expect([missing.status, missing.body.phone]).toEqual([201, null]);
     const bad = await staff.post('/tenants', { fullName: 'Bad Phone', idNumber: rwandanId(), phone: '2345345678', ...tenantDetails() });
     expect(bad.body.error.details.fields.phone).toMatch(/Rwandan number such as/);
     const ok = await staff.post('/tenants', { fullName: 'Good Phone', idNumber: rwandanId(), phone: '078 812 3456', ...tenantDetails() });

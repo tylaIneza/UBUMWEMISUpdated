@@ -789,7 +789,7 @@ async function arrearsReport(ctx: Ctx): Promise<Built> {
     include: { building: { select: { name: true } }, floor: { select: { name: true, level: true } }, room: { select: { number: true } }, tenant: { select: { id: true, fullName: true, phone: true } }, contract: { select: { status: true, monthlyRent: true } } },
   });
   const rows = charges.map((c) => ({
-    building: c.building.name, floor: c.floor.name, room: c.room.number, tenant: c.tenant.fullName, phone: c.tenant.phone, monthlyRent: c.contract.monthlyRent,
+    building: c.building.name, floor: c.floor.name, room: c.room.number, tenant: c.tenant.fullName, phone: c.tenant.phone ?? '', monthlyRent: c.contract.monthlyRent,
     month: periodLabel(c.period), period: c.period, amountDue: c.amountDue, amountPaid: c.amountPaid, balance: c.balance, dueDate: c.dueDate,
     daysOverdue: Math.max(0, daysBetween(c.dueDate, ctx.today)), contractStatus: c.contract.status, tenantId: c.tenant.id,
   }));
@@ -838,7 +838,7 @@ async function occupancyReport(ctx: Ctx): Promise<Built> {
     occupancyByGroup(ctx.orgId, 'buildingId', ctx.p), occupancyByGroup(ctx.orgId, 'floorId', ctx.p), floorsOf(ctx),
     prisma.room.findMany({
       where: { building: { orgId: ctx.orgId }, ...(ctx.p.buildingId ? { buildingId: ctx.p.buildingId } : {}), ...(ctx.p.floorId ? { floorId: ctx.p.floorId } : {}), ...(ctx.p.roomId ? { id: ctx.p.roomId } : {}) },
-      include: { building: { select: { name: true } }, floor: { select: { name: true, level: true } }, contracts: { where: { status: { in: [...OCCUPYING_STATUSES] } }, select: { contractNumber: true, endDate: true, tenant: { select: { fullName: true } } } } },
+      include: { building: { select: { name: true } }, floor: { select: { name: true, level: true } }, contracts: { where: { status: { in: [...OCCUPYING_STATUSES] } }, select: { contractNumber: true, endDate: true, leaseStart: true, tenant: { select: { fullName: true } } } } },
       orderBy: [{ building: { name: 'asc' } }, { floor: { level: 'asc' } }, { number: 'asc' }],
     }),
   ]);
@@ -858,7 +858,7 @@ async function occupancyReport(ctx: Ctx): Promise<Built> {
       { title: 'By floor', columns: [col('building', 'Building'), col('floor', 'Floor'), ...occCols], rows: floors.map((f) => ({ building: f.building.name, floor: f.name, ...(byFloor.get(f.id) ?? sumOccupancy([])) })) },
       {
         title: 'By room', columns: [col('building', 'Building'), col('floor', 'Floor'), col('room', 'Room'), col('type', 'Type'), col('status', 'Status', 'status'), col('monthlyRent', 'Monthly rent', 'money'), col('tenant', 'Tenant'), col('contract', 'Contract'), col('endDate', 'Contract ends', 'date')],
-        rows: rooms.map((r) => ({ building: r.building.name, floor: r.floor.name, room: r.number, type: r.roomType, status: r.status, monthlyRent: r.monthlyRent, tenant: r.contracts[0]?.tenant.fullName ?? '', contract: r.contracts[0]?.contractNumber ?? '', endDate: r.contracts[0]?.endDate ?? null })),
+        rows: rooms.map((r) => ({ building: r.building.name, floor: r.floor.name, room: r.number, type: r.roomType, status: r.status, monthlyRent: r.monthlyRent, tenant: r.contracts[0]?.tenant.fullName ?? '', contract: r.contracts[0]?.contractNumber ?? '', endDate: r.contracts[0]?.leaseStart ? r.contracts[0].endDate : null })),
       },
     ],
     notes: ['Occupancy rate = occupied rooms ÷ rentable rooms (inactive rooms are excluded).'],
@@ -1042,8 +1042,8 @@ async function contractsExport(ctx: Ctx): Promise<Built> {
     ],
     tables: [{
       title: 'Contracts',
-      columns: [col('number', 'Contract'), col('tenant', 'Tenant'), col('phone', 'Phone'), col('building', 'Building'), col('floor', 'Floor'), col('room', 'Room'), col('start', 'Start', 'date'), col('end', 'End', 'date'), col('daysLeft', 'Days to end', 'number'), col('rent', 'Monthly rent', 'money'), col('deposit', 'Deposit required', 'money'), col('status', 'Status', 'status')],
-      rows: contracts.map((c) => ({ number: c.contractNumber, tenant: c.tenant.fullName, phone: c.tenant.phone, building: c.building.name, floor: c.floor.name, room: c.room.number, start: c.startDate, end: c.terminatedOn ?? c.endDate, daysLeft: ['ACTIVE', 'EXPIRING', 'EXPIRED'].includes(c.status) ? daysBetween(ctx.today, c.endDate) : null, rent: c.monthlyRent, deposit: c.depositAmount, status: c.status })),
+      columns: [col('number', 'Contract'), col('lease', 'Signed contract'), col('tenant', 'Tenant'), col('phone', 'Phone'), col('building', 'Building'), col('floor', 'Floor'), col('room', 'Room'), col('start', 'Start', 'date'), col('end', 'End', 'date'), col('daysLeft', 'Days to end', 'number'), col('rent', 'Monthly rent', 'money'), col('deposit', 'Deposit required', 'money'), col('status', 'Status', 'status')],
+      rows: contracts.map((c) => ({ number: c.contractNumber, lease: c.leaseStart ? 'Yes' : 'Not yet', tenant: c.tenant.fullName, phone: c.tenant.phone, building: c.building.name, floor: c.floor.name, room: c.room.number, start: c.startDate, end: c.terminatedOn ?? (c.leaseStart ? c.endDate : null), daysLeft: c.leaseStart && ['ACTIVE', 'EXPIRING', 'EXPIRED'].includes(c.status) ? daysBetween(ctx.today, c.endDate) : null, rent: c.monthlyRent, deposit: c.depositAmount, status: c.status })),
     }],
   };
 }

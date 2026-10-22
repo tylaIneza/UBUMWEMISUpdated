@@ -5,14 +5,15 @@ import { money, sum, ZERO } from '../lib/money.js';
 import { parsePhone, phoneSearchDigits } from '../lib/phone.js';
 import { idNumberProblem, normalizeIdNumber, normalizeTin, tinProblem, type IdType } from '../lib/identity.js';
 import { audit, diff } from './audit.js';
+import { createContractTx, OPEN_END } from './contracts.js';
 import { orgToday } from './org.js';
 import { BILLABLE_STATUSES, OCCUPYING_STATUSES } from './property.js';
 
 export interface TenantInput {
   fullName: string;
   idType?: string;
-  idNumber: string;
-  phone: string;
+  idNumber?: string | null;
+  phone?: string | null;
   email?: string | null;
   address?: string | null;
   businessName?: string | null;
@@ -64,14 +65,27 @@ async function assertTin(orgId: string, tin: string, exceptId?: string) {
   }
 }
 
-export async function createTenant(actor: Actor, input: TenantInput) {
+/** A room the tenant moves into at registration: they occupy it and pay rent without a contract until one is given. */
+export interface TenancyInput {
+  roomId: string;
+  startDate: Date;
+}
+
+/**
+ * Registers a tenant. Only the name is required; the other details can be added later (the contract prints
+ * blank lines for any that are missing). With `tenancy`, the tenant also occupies that room from the given day,
+ * without a contract, so rent is billed and payments can be recorded.
+ */
+export async function createTenant(actor: Actor, input: TenantInput, tenancy?: TenancyInput) {
   const idType = (input.idType ?? 'NATIONAL_ID') as IdType;
-  await assertIdNumber(actor.orgId, idType, input.idNumber);
+  if (input.idNumber) await assertIdNumber(actor.orgId, idType, input.idNumber);
   if (input.tin) await assertTin(actor.orgId, input.tin);
+  if (tenancy && !can(actor, 'contract.manage')) throw forbidden('You are not authorised to assign a room to a tenant.');
   return inTransaction(async (tx) => {
     // The unique index on (organization, ID number) is the final guarantee if two people register the same person at once.
-    const tenant = await tx.tenant.create({ data: { orgId: actor.orgId, ...input, idNumber: normalizeIdNumber(input.idNumber), tin: input.tin ? normalizeTin(input.tin) : null, idType, status: 'INACTIVE' } });
+    const tenant = await tx.tenant.create({ data: { orgId: actor.orgId, ...input, idNumber: input.idNumber ? normalizeIdNumber(input.idNumber) : null, tin: input.tin ? normalizeTin(input.tin) : null, idType, status: 'INACTIVE' } });
     await audit(tx, actor, { action: 'TENANT_CREATED', entityType: 'Tenant', entityId: tenant.id, summary: `Tenant ${tenant.fullName} registered`, newValue: tenant });
+    if (tenancy) await createContractTx(tx, actor, { tenantId: tenant.id, roomId: tenancy.roomId, startDate: tenancy.startDate, endDate: OPEN_END, activate: true, withLease: false });
     return tenant;
   });
 }
@@ -80,14 +94,14 @@ export async function updateTenant(actor: Actor, id: string, input: Partial<Tena
   const current = await prisma.tenant.findFirst({ where: { id, orgId: actor.orgId } });
   if (!current) throw notFound('Tenant');
   const idType = (input.idType ?? current.idType) as IdType;
-  const idNumber = input.idNumber ?? current.idNumber;
+  const idNumber = input.idNumber === undefined ? current.idNumber : input.idNumber;
   // Check the number when it (or its type) changes, so older records can still be edited until they are corrected.
-  if (normalizeIdNumber(idNumber) !== current.idNumber || idType !== current.idType) await assertIdNumber(actor.orgId, idType, idNumber, id);
+  if (idNumber && (normalizeIdNumber(idNumber) !== current.idNumber || idType !== current.idType)) await assertIdNumber(actor.orgId, idType, idNumber, id);
   if (input.tin && normalizeTin(input.tin) !== current.tin) await assertTin(actor.orgId, input.tin, id);
   return inTransaction(async (tx) => {
     const before = await tx.tenant.findFirst({ where: { id, orgId: actor.orgId } });
     if (!before) throw notFound('Tenant');
-    const tenant = await tx.tenant.update({ where: { id }, data: { ...input, idNumber: input.idNumber === undefined ? undefined : normalizeIdNumber(input.idNumber), tin: input.tin ? normalizeTin(input.tin) : input.tin } });
+    const tenant = await tx.tenant.update({ where: { id }, data: { ...input, idNumber: input.idNumber === undefined ? undefined : input.idNumber ? normalizeIdNumber(input.idNumber) : null, tin: input.tin ? normalizeTin(input.tin) : input.tin } });
     const d = diff(before, tenant);
     if (d) await audit(tx, actor, { action: 'TENANT_UPDATED', entityType: 'Tenant', entityId: id, summary: `Tenant ${tenant.fullName} updated`, oldValue: d.old, newValue: d.new });
     return tenant;
@@ -175,8 +189,8 @@ export async function tenantDetail(orgId: string, id: string) {
   for (const c of open) byContract.set(c.contractId, (byContract.get(c.contractId) ?? ZERO).plus(c.balance));
   return {
     ...tenant,
-    idNumberProblem: idNumberProblem(tenant.idType as IdType, tenant.idNumber),
-    phoneProblem: parsePhone(tenant.phone).e164 === tenant.phone ? null : (parsePhone(tenant.phone).problem ?? 'Saved in an old format.'),
+    idNumberProblem: tenant.idNumber ? idNumberProblem(tenant.idType as IdType, tenant.idNumber) : null,
+    phoneProblem: !tenant.phone || parsePhone(tenant.phone).e164 === tenant.phone ? null : (parsePhone(tenant.phone).problem ?? 'Saved in an old format.'),
     contracts: tenant.contracts.map((c) => ({ ...c, outstanding: byContract.get(c.id) ?? ZERO, billable: (BILLABLE_STATUSES as readonly string[]).includes(c.status) })),
     currentContracts: current,
     financial: {

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
-import { date, dateTime, money, percent, phone } from '../format';
+import { date, dateTime, money, percent, phone, tenancyPeriod } from '../format';
 import { useApi } from '../shared';
 import { I, type IconName } from '../icons';
 import { Alert, Badge, Button, Card, DL, Empty, ErrorBox, Loading, Modal, PageHead, Stat, Table } from '../ui';
@@ -35,7 +35,7 @@ function RoomPopup({ room, onClose }: { room: any; onClose: () => void }) {
         <DL items={[
           ['Building', r.building.name], ['Floor', r.floor.name], ['Status', <Badge status={r.status} />], ['Monthly rent', money(r.monthlyRent)],
           ['Current tenant', r.currentContract ? <Link to={`/tenants/${r.currentContract.tenant.id}`}>{r.currentContract.tenant.fullName}</Link> : 'None'],
-          ['Contract', r.currentContract ? <>{r.currentContract.contractNumber} · {date(r.currentContract.startDate)} – {date(r.currentContract.endDate)} <Badge status={r.currentContract.status} /></> : '—'],
+          ['Contract', r.currentContract ? <>{r.currentContract.contractNumber} · {tenancyPeriod(r.currentContract)} <Badge status={r.currentContract.status} /></> : '—'],
           ['Outstanding balance', <span className={Number(r.financial.outstanding) > 0 ? 'strong' : ''}>{money(r.financial.outstanding)}</span>],
           ['Of which overdue', money(r.financial.overdue)], ['Open maintenance', r.openMaintenance],
           ['Previous occupants', r.contracts.filter((c: any) => c.id !== r.currentContract?.id).length],

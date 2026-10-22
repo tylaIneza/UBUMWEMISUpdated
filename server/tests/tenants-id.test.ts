@@ -60,10 +60,11 @@ describe('one ID number = one tenant', () => {
     expect([res.status, res.body.error.code, res.body.error.details.fields.idNumber]).toEqual([409, 'DUPLICATE_TENANT', 'Already registered to Uwase Aline.']);
   });
 
-  it('requires a valid 9-digit TIN, unique to one tenant, and the full address', async () => {
+  it('needs only a name; a TIN, when given, has 9 digits and belongs to one tenant', async () => {
     const staff = await loginAs(w.emails.PROPERTY_STAFF);
-    const noAddress = await staff.post('/tenants', { fullName: 'Kalisa Eric', phone: '+250788123001', idNumber: '1199680012345678' });
-    expect(Object.keys(noAddress.body.error.details.fields).sort()).toEqual(['cell', 'district', 'sector', 'tin', 'village']);
+    const nameOnly = await staff.post('/tenants', { fullName: 'Name Only' });
+    expect([nameOnly.status, nameOnly.body.idNumber, nameOnly.body.phone, nameOnly.body.tin, nameOnly.body.district]).toEqual([201, null, null, null, null]);
+    expect((await staff.post('/tenants', { fullName: 'Name Only Too' })).status).toBe(201);
     const badTin = await staff.post('/tenants', { fullName: 'Kalisa Eric', phone: '+250788123001', idNumber: '1199680012345678', ...tenantDetails(), tin: '12345' });
     expect(badTin.body.error.details.fields.tin).toBe('A TIN number has 9 digits; this one has 5.');
     const tin = tinNumber();

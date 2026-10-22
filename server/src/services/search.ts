@@ -60,7 +60,7 @@ export async function globalSearch(actor: Actor, q: string): Promise<SearchHit[]
     })),
     ...rooms.map((r): SearchHit => ({ type: 'room', id: r.id, title: `Room ${r.number}`, badge: r.status, href: `/rooms/${r.id}`, context: [r.building.name, r.floor.name, r.contracts[0]?.tenant.fullName ?? 'No tenant'].join(' · ') })),
     ...buildings.map((b): SearchHit => ({ type: 'building', id: b.id, title: b.name, badge: b.status, href: `/buildings?selected=${b.id}`, context: `Building code ${b.code}` })),
-    ...contracts.map((c): SearchHit => ({ type: 'contract', id: c.id, title: c.contractNumber, badge: c.status, href: `/contracts/${c.id}`, context: [c.tenant.fullName, `Room ${c.room.number}`, c.building.name, `${isoDate(c.startDate)} – ${isoDate(c.endDate)}`].join(' · ') })),
+    ...contracts.map((c): SearchHit => ({ type: 'contract', id: c.id, title: c.contractNumber, badge: c.status, href: `/contracts/${c.id}`, context: [c.tenant.fullName, `Room ${c.room.number}`, c.building.name, c.leaseStart ? `${isoDate(c.startDate)} – ${isoDate(c.endDate)}` : `from ${isoDate(c.startDate)}, no contract yet`].join(' · ') })),
     ...payments.map((p): SearchHit => ({ type: 'payment', id: p.id, title: p.receipt?.receiptNumber ?? 'Payment', badge: p.status, href: `/payments/${p.id}`, context: [formatMoney(p.amount), p.tenant.fullName, `Room ${p.room.number}`, p.building.name, p.method.name, p.reference ? `ref ${p.reference}` : '', isoDate(p.businessDate)].filter(Boolean).join(' · ') })),
   ];
 }

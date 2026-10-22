@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/db.js';
-import { correctContractDates, createContract, renewContract } from '../src/services/contracts.js';
+import { correctContractDates, createContract, giveContract, renewContract } from '../src/services/contracts.js';
 import { contractDocument } from '../src/services/contractDocument.js';
 import { createTenant } from '../src/services/tenants.js';
 import { updateBuilding } from '../src/services/property.js';
@@ -101,6 +101,19 @@ describe('lease contract document', () => {
     await correctContractDates(w.actors.MANAGEMENT, renewed.id, { startDate: addMonths(thisMonth(), 2), endDate: endOfMonth(addMonths(thisMonth(), 7)), reason: 'Tenant starts working later' });
     const corrected = docxText((await contractDocument(w.actors.MANAGEMENT, renewed.id, 'docx')).buffer);
     expect(corrected).toContain(`uhereye ku itariki ya ${fmt(addMonths(thisMonth(), 2))} kugeza kuwa ${fmt(yearEnd(addMonths(thisMonth(), 2)))}`);
+  });
+
+  it('prints the contract a tenant was given later with its own start date', async () => {
+    const b = await makeBuilding(w, 'GIV', 1, 1, 250000);
+    await updateBuilding(w.actors.SUPER_ADMIN, b.id, { ...UBUMWE, contractTemplate: 'contract-ubumwe.docx' });
+    const t = await createTenant(w.actors.PROPERTY_STAFF, { fullName: 'Later Contract' }, { roomId: b.floors[0]!.rooms[0]!.id, startDate: thisMonth() });
+    const tenancy = await prisma.contract.findFirstOrThrow({ where: { tenantId: t.id } });
+    const start = addMonths(thisMonth(), 2);
+    await giveContract(w.actors.MANAGEMENT, tenancy.id, { startDate: start, endDate: yearEnd(start) });
+    const doc = await contractDocument(w.actors.MANAGEMENT, tenancy.id, 'docx');
+    expect(docxText(doc.buffer)).toContain(`uhereye ku itariki ya ${fmt(start)} kugeza kuwa ${fmt(yearEnd(start))}`);
+    // No ID number or phone yet: those are printed as lines to fill in by hand.
+    expect(doc.missing).toEqual(expect.arrayContaining(['idNumber', 'phone']));
   });
 
   it('is available to anyone who can view contracts, over HTTP', async () => {

@@ -11,7 +11,7 @@ import { Deposits, Invoices, PaymentDetail, Payments, RecordPayment, Rent } from
 import { Buildings, Floors, RoomDetail, Rooms } from './pages/property';
 import { Reminders } from './pages/reminders';
 import { Reports } from './pages/reports';
-import { Onboarding, TenantDetail, Tenants } from './pages/tenants';
+import { Onboarding, RegisterTenant, TenantDetail, Tenants } from './pages/tenants';
 import { Empty, Loading } from './ui';
 
 /** Hides a screen the user's role cannot use. The server enforces the same rule on every request regardless. */
@@ -46,7 +46,7 @@ export function App() {
         <Route path="/rooms" element={page(['room.view'], <Rooms />)} />
         <Route path="/rooms/:id" element={page(['room.view'], <RoomDetail />)} />
         <Route path="/tenants" element={page(['tenant.view'], <Tenants />)} />
-        <Route path="/tenants/new" element={page(['tenant.manage', 'contract.manage'], <Onboarding />)} />
+        <Route path="/tenants/new" element={page(['tenant.manage'], <RegisterTenant />)} />
         <Route path="/tenants/:id" element={page(['tenant.view'], <TenantDetail />)} />
         <Route path="/contracts" element={page(['contract.view'], <Contracts />)} />
         <Route path="/contracts/new" element={page(['contract.manage'], <Onboarding existing />)} />
