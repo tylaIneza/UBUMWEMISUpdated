@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 348" width="1260" height="348">
+  <g fill="#743a1c" stroke="none">
+    <ellipse cx="630" cy="174" rx="603" ry="160" fill="none" stroke="#743a1c" stroke-width="6"/>
+    <g transform="translate(0 -12)">
+      <!-- left roof -->
+      <path d="M150 206 L340 144 L512 196 L512 202 L340 156 L150 210 Z"/>
+      <!-- right roof -->
+      <path d="M552 192 L800 126 L1080 188 L1080 194 L800 138 L552 196 Z"/>
+      <!-- roof windows -->
+      <rect x="310" y="174" width="17" height="7"/><rect x="331" y="174" width="17" height="7"/>
+      <rect x="310" y="184" width="17" height="7"/><rect x="331" y="184" width="17" height="7"/>
+      <rect x="760" y="166" width="40" height="8"/><rect x="804" y="166" width="40" height="8"/>
+      <rect x="760" y="178" width="40" height="8"/><rect x="804" y="178" width="40" height="8"/>
+    </g>
+    <text x="630" y="270" text-anchor="middle" textLength="800" lengthAdjust="spacingAndGlyphs" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="100">IHURIRO HOUSE</text>
+  </g>
+</svg>
