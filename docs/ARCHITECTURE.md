@@ -44,27 +44,29 @@ Nothing is hard-coded to three buildings: buildings, floors and rooms are rows.
 
 These hold even if application code is bypassed (verified by tests that write directly to the database):
 
-| Rule | Mechanism (`migrations/…_integrity_rules`) |
+| Rule | Mechanism (`migrations/…_integrity_rules`, `…_partial_unique_columns`) |
 |---|---|
-| A room has at most one occupying contract | unique index on a generated column (`occupyingRoomId`) |
+| A room has at most one occupying contract | unique index on a trigger-maintained column (`occupyingRoomId`) |
 | Contract periods for a room never overlap | trigger |
-| One live rent charge per contract per month | unique index on generated column |
+| One live rent charge per contract per month | unique index on a trigger-maintained column |
 | `balance = due − paid − waived`; a PAID charge has zero balance; a PARTIAL one has paid > 0 and balance > 0 | CHECK constraints |
 | `payment.amount = allocated + unallocated`; payments positive, reversals negative | CHECK constraints |
 | Payments, allocations, receipts, deposit transactions, audit log: no UPDATE of financial fields, no DELETE | triggers |
 | No payment dated inside a closed accounting period | trigger |
 | Rent-rate history: no overlap, no editing closed rates, no deletion | triggers + unique index |
-| A transaction reference is used once per payment method | unique index on generated column |
+| A transaction reference is used once per payment method | unique index on a trigger-maintained column |
 | Room/floor belong to the same building; expense scope matches its location | composite foreign key, CHECK |
 | Users owning transactions cannot be hard-deleted | `ON DELETE RESTRICT` everywhere (users are soft-deleted) |
 
-MariaDB has no partial indexes or exclusion constraints; generated-column unique indexes and triggers provide the
-same guarantees.
+MariaDB has no partial indexes or exclusion constraints; unique indexes on columns that triggers fill only while a rule
+applies (NULL otherwise) provide the same guarantees. They are plain columns rather than generated ones because newer
+MariaDB releases refuse generated columns and CHECK constraints on foreign-key columns whose update action cascades
+(those keys use `ON UPDATE RESTRICT`).
 
 ### Migrations
 
 `prisma migrate deploy` applies the SQL in `server/prisma/migrations`. The second migration is hand-written (constraints,
-generated columns, triggers) — **when adding a migration, generate SQL with `prisma migrate diff`, review it, and make
+triggers), as is `…_partial_unique_columns` — **when adding a migration, generate SQL with `prisma migrate diff`, review it, and make
 sure it does not drop those objects** (Prisma does not know about them).
 
 ## 4. Financial model

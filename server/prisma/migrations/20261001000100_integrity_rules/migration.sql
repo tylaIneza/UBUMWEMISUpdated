@@ -60,35 +60,10 @@ ALTER TABLE `maintenance_requests`
 ALTER TABLE `accounting_periods`
   ADD CONSTRAINT `chk_period_first_day` CHECK (DAYOFMONTH(`period`) = 1);
 
--- ───────────── "Partial unique" rules via generated columns ─────────────
--- A room can hold at most ONE occupying contract (ACTIVE / EXPIRING / EXPIRED-not-yet-vacated).
-ALTER TABLE `contracts`
-  ADD COLUMN `occupyingRoomId` CHAR(36) AS (IF(`status` IN ('ACTIVE', 'EXPIRING', 'EXPIRED'), `roomId`, NULL)) PERSISTENT,
-  ADD UNIQUE INDEX `uq_contract_one_occupant_per_room` (`occupyingRoomId`);
-
--- A room can hold at most one ACTIVE reservation.
-ALTER TABLE `reservations`
-  ADD COLUMN `activeRoomId` CHAR(36) AS (IF(`status` = 'ACTIVE', `roomId`, NULL)) PERSISTENT,
-  ADD UNIQUE INDEX `uq_reservation_one_active_per_room` (`activeRoomId`);
-
--- One live (non-void) rent charge per contract per month.
-ALTER TABLE `rent_charges`
-  ADD COLUMN `liveKey` VARCHAR(50) AS (IF(`status` <> 'VOID', CONCAT(`contractId`, ':', `period`), NULL)) PERSISTENT,
-  ADD UNIQUE INDEX `uq_charge_one_live_per_period` (`liveKey`);
-
--- A transaction reference can be used by only one live payment per method.
-ALTER TABLE `payments`
-  ADD COLUMN `liveReference` VARCHAR(160) AS (IF(`type` = 'PAYMENT' AND `status` = 'POSTED' AND `reference` IS NOT NULL, CONCAT(`methodId`, ':', `reference`), NULL)) PERSISTENT,
-  ADD UNIQUE INDEX `uq_payment_live_reference` (`orgId`, `liveReference`);
-
--- Only one open-ended rate per room / contract.
-ALTER TABLE `room_rent_rates`
-  ADD COLUMN `openRoomId` CHAR(36) AS (IF(`effectiveTo` IS NULL, `roomId`, NULL)) PERSISTENT,
-  ADD UNIQUE INDEX `uq_room_rate_one_open` (`openRoomId`);
-
-ALTER TABLE `contract_rent_rates`
-  ADD COLUMN `openContractId` CHAR(36) AS (IF(`effectiveTo` IS NULL, `contractId`, NULL)) PERSISTENT,
-  ADD UNIQUE INDEX `uq_contract_rate_one_open` (`openContractId`);
+-- ───────────── "Partial unique" rules ─────────────
+-- One occupying contract per room, one active reservation per room, one live charge per contract and month, one live
+-- payment per method and reference, one open rent rate per room / contract: created by migration
+-- 20261023000100_partial_unique_columns as trigger-maintained columns with unique indexes.
 
 -- ───────────── Immutability triggers ─────────────
 CREATE TRIGGER `trg_payments_no_delete` BEFORE DELETE ON `payments` FOR EACH ROW
