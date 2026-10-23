@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <title>UBUMWE HOUSE</title>
+  <rect width="100" height="100" rx="20" fill="#ffffff"/>
+  <g transform="translate(4 25.3) scale(0.0983)">
+  <g fill="#032a4a">
+    <!-- tree behind the roof -->
+    <path d="M512 150 C498 118 520 92 552 96 C556 62 598 46 628 62 C648 30 700 24 728 44 C760 26 806 40 812 74 C850 76 874 108 860 140 C884 162 872 204 842 214 C832 240 800 248 780 236 L760 228 L688 186 L540 206 C520 190 510 170 512 150 Z"/>
+    <!-- chimney -->
+    <rect x="392" y="148" width="82" height="60"/>
+    <!-- main roof -->
+    <path d="M45 346 L245 190 L385 190 L392 200 L474 200 L478 194 L688 172 L862 318 L862 336 L688 196 L490 346 Z"/>
+  </g>
+  <!-- eave strip -->
+  <path d="M45 346 L490 346 L486 358 L45 358 Z" fill="#7d8a9c"/>
+  <path d="M45 358 L486 358 L482 362 L45 362 Z" fill="#032a4a"/>
+  <!-- left dormer -->
+  <path d="M188 330 L188 262 L258 196 L362 262 L362 330 Z" fill="#032a4a"/>
+  <path d="M200 326 L200 266 L258 212 L350 266 L350 326 Z" fill="#fff"/>
+  <path d="M206 266 L258 218 L344 266" fill="none" stroke="#7d8a9c" stroke-width="3"/>
+  <!-- right gable wall -->
+  <path d="M510 346 L688 202 L852 336 L852 346 Z" fill="#fff"/>
+  <path d="M502 346 L688 196 L862 336" fill="none" stroke="#fff" stroke-width="5"/>
+  <path d="M498 346 L688 186 L862 328" fill="none" stroke="#7d8a9c" stroke-width="3"/>
+  <!-- windows -->
+  <g fill="none" stroke="#032a4a" stroke-width="7">
+    <rect x="240" y="246" width="62" height="50"/>
+    <path d="M271 246 V296 M240 271 H302"/>
+    <rect x="638" y="262" width="96" height="74"/>
+    <path d="M686 262 V336 M638 299 H734"/>
+  </g>
+  <!-- swoosh -->
+  <path fill="#032a4a" d="M28 446 C40 400 88 372 150 376 C260 384 360 430 480 446 C620 464 760 420 860 372 C880 362 898 350 908 338 C904 380 870 410 820 432 C700 484 560 492 430 474 C320 458 220 418 140 408 C88 402 50 418 28 446 Z"/>
+</g>
+</svg>
