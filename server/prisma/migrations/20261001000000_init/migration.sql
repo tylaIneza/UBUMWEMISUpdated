@@ -705,7 +705,7 @@ ALTER TABLE `rooms` ADD CONSTRAINT `rooms_buildingId_fkey` FOREIGN KEY (`buildin
 ALTER TABLE `rooms` ADD CONSTRAINT `rooms_floorId_buildingId_fkey` FOREIGN KEY (`floorId`, `buildingId`) REFERENCES `floors`(`id`, `buildingId`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `room_rent_rates` ADD CONSTRAINT `room_rent_rates_roomId_fkey` FOREIGN KEY (`roomId`) REFERENCES `rooms`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `room_rent_rates` ADD CONSTRAINT `room_rent_rates_roomId_fkey` FOREIGN KEY (`roomId`) REFERENCES `rooms`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE `room_rent_rates` ADD CONSTRAINT `room_rent_rates_createdById_fkey` FOREIGN KEY (`createdById`) REFERENCES `users`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -717,7 +717,7 @@ ALTER TABLE `tenants` ADD CONSTRAINT `tenants_orgId_fkey` FOREIGN KEY (`orgId`) 
 ALTER TABLE `contracts` ADD CONSTRAINT `contracts_tenantId_fkey` FOREIGN KEY (`tenantId`) REFERENCES `tenants`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `contracts` ADD CONSTRAINT `contracts_roomId_fkey` FOREIGN KEY (`roomId`) REFERENCES `rooms`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `contracts` ADD CONSTRAINT `contracts_roomId_fkey` FOREIGN KEY (`roomId`) REFERENCES `rooms`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE `contracts` ADD CONSTRAINT `contracts_floorId_fkey` FOREIGN KEY (`floorId`) REFERENCES `floors`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -732,7 +732,7 @@ ALTER TABLE `contracts` ADD CONSTRAINT `contracts_renewedFromId_fkey` FOREIGN KE
 ALTER TABLE `contracts` ADD CONSTRAINT `contracts_createdById_fkey` FOREIGN KEY (`createdById`) REFERENCES `users`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `contract_rent_rates` ADD CONSTRAINT `contract_rent_rates_contractId_fkey` FOREIGN KEY (`contractId`) REFERENCES `contracts`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `contract_rent_rates` ADD CONSTRAINT `contract_rent_rates_contractId_fkey` FOREIGN KEY (`contractId`) REFERENCES `contracts`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE `contract_rent_rates` ADD CONSTRAINT `contract_rent_rates_createdById_fkey` FOREIGN KEY (`createdById`) REFERENCES `users`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -744,7 +744,7 @@ ALTER TABLE `rent_adjustments` ADD CONSTRAINT `rent_adjustments_contractId_fkey`
 ALTER TABLE `rent_adjustments` ADD CONSTRAINT `rent_adjustments_approvalId_fkey` FOREIGN KEY (`approvalId`) REFERENCES `approval_requests`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `reservations` ADD CONSTRAINT `reservations_roomId_fkey` FOREIGN KEY (`roomId`) REFERENCES `rooms`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `reservations` ADD CONSTRAINT `reservations_roomId_fkey` FOREIGN KEY (`roomId`) REFERENCES `rooms`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE `reservations` ADD CONSTRAINT `reservations_tenantId_fkey` FOREIGN KEY (`tenantId`) REFERENCES `tenants`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -753,7 +753,7 @@ ALTER TABLE `reservations` ADD CONSTRAINT `reservations_tenantId_fkey` FOREIGN K
 ALTER TABLE `reservations` ADD CONSTRAINT `reservations_createdById_fkey` FOREIGN KEY (`createdById`) REFERENCES `users`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `rent_charges` ADD CONSTRAINT `rent_charges_contractId_fkey` FOREIGN KEY (`contractId`) REFERENCES `contracts`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `rent_charges` ADD CONSTRAINT `rent_charges_contractId_fkey` FOREIGN KEY (`contractId`) REFERENCES `contracts`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE `rent_charges` ADD CONSTRAINT `rent_charges_tenantId_fkey` FOREIGN KEY (`tenantId`) REFERENCES `tenants`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -786,10 +786,10 @@ ALTER TABLE `payments` ADD CONSTRAINT `payments_floorId_fkey` FOREIGN KEY (`floo
 ALTER TABLE `payments` ADD CONSTRAINT `payments_buildingId_fkey` FOREIGN KEY (`buildingId`) REFERENCES `buildings`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `payments` ADD CONSTRAINT `payments_methodId_fkey` FOREIGN KEY (`methodId`) REFERENCES `payment_methods`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `payments` ADD CONSTRAINT `payments_methodId_fkey` FOREIGN KEY (`methodId`) REFERENCES `payment_methods`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
-ALTER TABLE `payments` ADD CONSTRAINT `payments_reversesId_fkey` FOREIGN KEY (`reversesId`) REFERENCES `payments`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `payments` ADD CONSTRAINT `payments_reversesId_fkey` FOREIGN KEY (`reversesId`) REFERENCES `payments`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE `payments` ADD CONSTRAINT `payments_recordedById_fkey` FOREIGN KEY (`recordedById`) REFERENCES `users`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -846,13 +846,13 @@ ALTER TABLE `approval_requests` ADD CONSTRAINT `approval_requests_decidedById_fk
 ALTER TABLE `expense_categories` ADD CONSTRAINT `expense_categories_orgId_fkey` FOREIGN KEY (`orgId`) REFERENCES `organizations`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `expenses` ADD CONSTRAINT `expenses_buildingId_fkey` FOREIGN KEY (`buildingId`) REFERENCES `buildings`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `expenses` ADD CONSTRAINT `expenses_buildingId_fkey` FOREIGN KEY (`buildingId`) REFERENCES `buildings`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
-ALTER TABLE `expenses` ADD CONSTRAINT `expenses_floorId_fkey` FOREIGN KEY (`floorId`) REFERENCES `floors`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `expenses` ADD CONSTRAINT `expenses_floorId_fkey` FOREIGN KEY (`floorId`) REFERENCES `floors`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
-ALTER TABLE `expenses` ADD CONSTRAINT `expenses_roomId_fkey` FOREIGN KEY (`roomId`) REFERENCES `rooms`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `expenses` ADD CONSTRAINT `expenses_roomId_fkey` FOREIGN KEY (`roomId`) REFERENCES `rooms`(`id`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE `expenses` ADD CONSTRAINT `expenses_categoryId_fkey` FOREIGN KEY (`categoryId`) REFERENCES `expense_categories`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;

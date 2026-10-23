@@ -481,7 +481,7 @@ model RoomRentRate {
   createdById   String?   @db.Char(36)
   createdAt     DateTime  @default(now())
 
-  room      Room  @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  room      Room  @relation(fields: [roomId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   createdBy User? @relation(fields: [createdById], references: [id], onDelete: Restrict)
 
   @@index([roomId, effectiveFrom])
@@ -571,7 +571,7 @@ model Contract {
   updatedAt         DateTime       @updatedAt
 
   tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  room        Room                 @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  room        Room                 @relation(fields: [roomId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   floor       Floor                @relation(fields: [floorId], references: [id], onDelete: Restrict)
   building    Building             @relation(fields: [buildingId], references: [id], onDelete: Restrict)
   renewedFrom Contract?            @relation("ContractRenewal", fields: [renewedFromId], references: [id], onDelete: Restrict)
@@ -603,7 +603,7 @@ model ContractRentRate {
   createdById   String?   @db.Char(36)
   createdAt     DateTime  @default(now())
 
-  contract  Contract @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  contract  Contract @relation(fields: [contractId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   createdBy User?    @relation(fields: [createdById], references: [id], onDelete: Restrict)
 
   @@index([contractId, effectiveFrom])
@@ -645,7 +645,7 @@ model Reservation {
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
-  room      Room    @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  room      Room    @relation(fields: [roomId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   tenant    Tenant? @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   createdBy User?   @relation(fields: [createdById], references: [id], onDelete: Restrict)
 
@@ -679,7 +679,7 @@ model RentCharge {
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
-  contract    Contract            @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  contract    Contract            @relation(fields: [contractId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   room        Room                @relation(fields: [roomId], references: [id], onDelete: Restrict)
   floor       Floor               @relation(fields: [floorId], references: [id], onDelete: Restrict)
@@ -752,8 +752,8 @@ model Payment {
   room        Room                @relation(fields: [roomId], references: [id], onDelete: Restrict)
   floor       Floor               @relation(fields: [floorId], references: [id], onDelete: Restrict)
   building    Building            @relation(fields: [buildingId], references: [id], onDelete: Restrict)
-  method      PaymentMethod       @relation(fields: [methodId], references: [id], onDelete: Restrict)
-  reverses    Payment?            @relation("PaymentReversal", fields: [reversesId], references: [id], onDelete: Restrict)
+  method      PaymentMethod       @relation(fields: [methodId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  reverses    Payment?            @relation("PaymentReversal", fields: [reversesId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   reversedBy  Payment?            @relation("PaymentReversal")
   recordedBy  User                @relation("PaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
   verifiedBy  User?               @relation("PaymentVerifiedBy", fields: [verifiedById], references: [id], onDelete: Restrict)
@@ -946,9 +946,9 @@ model Expense {
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 
-  building    Building?           @relation(fields: [buildingId], references: [id], onDelete: Restrict)
-  floor       Floor?              @relation(fields: [floorId], references: [id], onDelete: Restrict)
-  room        Room?               @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  building    Building?           @relation(fields: [buildingId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  floor       Floor?              @relation(fields: [floorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  room        Room?               @relation(fields: [roomId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   category    ExpenseCategory     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   method      PaymentMethod?      @relation(fields: [methodId], references: [id], onDelete: Restrict)
   maintenance MaintenanceRequest? @relation(fields: [maintenanceRequestId], references: [id], onDelete: Restrict)
