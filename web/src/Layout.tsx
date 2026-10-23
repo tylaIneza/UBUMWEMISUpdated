@@ -5,6 +5,7 @@ import { api } from './api';
 import { useAuth, useMeta } from './auth';
 import { label } from './format';
 import { I, type IconName } from './icons';
+import { useInstallApp } from './pwa';
 import { Badge, Button, useDebounced } from './ui';
 
 interface NavItem {
@@ -60,6 +61,7 @@ export function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [menu, setMenu] = useState(false);
+  const { install } = useInstallApp();
   const [logo, setLogo] = useState(true);
   useEffect(() => setMenu(false), [location.pathname]);
   const unread = useQuery({ queryKey: ['unread'], queryFn: () => api.get('/notifications/unread-count'), refetchInterval: 60_000 });
@@ -128,6 +130,12 @@ export function Layout() {
             );
           })}
         </nav>
+        {install && (
+          <div className="install-app">
+            <Button variant="primary" onClick={() => void install()}>Install app</Button>
+            <small>Adds UBUMWE HOUSE to your home screen</small>
+          </div>
+        )}
       </aside>
       <div className="main">
         {me.organization.isDemo && <div className="demo-banner screen" role="note">DEMO DATA — sample records for demonstration and training. Not real business data.</div>}

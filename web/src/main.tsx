@@ -5,9 +5,12 @@ import { BrowserRouter } from 'react-router-dom';
 import { ApiError } from './api';
 import { App } from './App';
 import { AuthProvider } from './auth';
+import { setUpPwa } from './pwa';
 import './styles.css';
 import './theme.css';
 import { ToastProvider } from './ui';
+
+setUpPwa();
 
 const queryClient = new QueryClient({
   defaultOptions: {

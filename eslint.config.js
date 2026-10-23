@@ -16,4 +16,5 @@ export default tseslint.config(
   },
   { files: ['server/prisma/**', 'scripts/**'], rules: { 'no-console': 'off' } },
   { files: ['scripts/**/*.mjs', 'eslint.config.js'], languageOptions: { globals: { process: 'readonly', console: 'readonly' } } },
+  { files: ['web/public/sw.js'], languageOptions: { globals: { self: 'readonly', caches: 'readonly', fetch: 'readonly', URL: 'readonly', Response: 'readonly' } } },
 );

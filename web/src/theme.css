@@ -172,3 +172,10 @@
   .dash-wallpaper { position: fixed; inset: 0; z-index: -1; pointer-events: none;
     background: linear-gradient(180deg, rgba(5, 13, 28, 0.55) 0%, rgba(5, 13, 28, 0.78) 45%, rgba(5, 13, 28, 0.9) 100%), url(/brand/kcc.jpg) center 35% / cover no-repeat; }
 }
+
+/* "Install app" at the foot of the menu, shown only while the browser allows installing. */
+@media screen {
+  .install-app { margin: 12px 14px 18px; padding: 12px; border: 1px solid var(--border); border-radius: 14px; display: grid; gap: 6px; text-align: center; }
+  .install-app .btn { width: 100%; justify-content: center; }
+  .install-app small { color: var(--text-3); font-size: 11.5px; }
+}
