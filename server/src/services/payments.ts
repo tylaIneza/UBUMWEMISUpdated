@@ -328,6 +328,8 @@ export interface PaymentFilter {
   type?: 'PAYMENT' | 'REVERSAL';
   verified?: boolean;
   q?: string;
+  /** Include payments of archived tenants (only when the viewer may see them and asked for one tenant or contract). */
+  includeArchived?: boolean;
 }
 
 export function paymentWhere(orgId: string, f: PaymentFilter): Prisma.PaymentWhereInput {
@@ -362,7 +364,8 @@ const paymentListInclude = {
 } satisfies Prisma.PaymentInclude;
 
 export async function listPayments(orgId: string, f: PaymentFilter, page: { page: number; pageSize: number }) {
-  const where = paymentWhere(orgId, f);
+  // The list hides archived tenants' payments; reports and totals elsewhere still count them.
+  const where: Prisma.PaymentWhereInput = { ...paymentWhere(orgId, f), ...(f.includeArchived ? {} : { tenant: { status: { not: 'ARCHIVED' } } }) };
   const [total, items, totals] = await Promise.all([
     prisma.payment.count({ where }),
     prisma.payment.findMany({ where, include: paymentListInclude, orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }], skip: (page.page - 1) * page.pageSize, take: page.pageSize }),

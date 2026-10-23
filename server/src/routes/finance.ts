@@ -20,7 +20,7 @@ import * as payments from '../services/payments.js';
 import * as periods from '../services/periods.js';
 import { generateReport, REPORT_TYPES, type ReportParams, type ReportType } from '../services/reports.js';
 import { runDailyJobs } from '../services/scheduler.js';
-import { rentLedger } from '../services/tenants.js';
+import { assertTenantVisible, rentLedger } from '../services/tenants.js';
 
 export const financeRouter = Router();
 
@@ -33,7 +33,8 @@ financeRouter.get('/rent/charges', requirePermission('rent.view'), async (req, r
     tenantId: zOptionalId, contractId: zOptionalId, roomId: zOptionalId, buildingId: zOptionalId, floorId: zOptionalId, status: zText(20),
     from: zOptionalDate, to: zOptionalDate, overdueOnly: zBool, owingOnly: zBool, includeVoid: zBool,
   }).parse(req.query);
-  const r = await rentLedger(actorOf(req).orgId, q, q, req.query.dir === 'asc' ? 'asc' : 'desc');
+  const includeArchived = Boolean(q.tenantId || q.contractId) && can(actorOf(req), 'tenant.archive');
+  const r = await rentLedger(actorOf(req).orgId, { ...q, includeArchived }, q, req.query.dir === 'asc' ? 'asc' : 'desc');
   res.json({ ...paged(r.items, r.total, q), totals: r.totals });
 });
 
@@ -64,7 +65,8 @@ financeRouter.get('/payments', requirePermission('payment.view'), async (req, re
     from: zOptionalDate, to: zOptionalDate, status: z.enum(['POSTED', 'REVERSED']).optional().or(z.literal('').transform(() => undefined)),
     type: z.enum(['PAYMENT', 'REVERSAL']).optional().or(z.literal('').transform(() => undefined)), verified: zBool,
   }).parse(req.query);
-  const r = await payments.listPayments(actorOf(req).orgId, q, q);
+  const includeArchived = Boolean(q.tenantId || q.contractId) && can(actorOf(req), 'tenant.archive');
+  const r = await payments.listPayments(actorOf(req).orgId, { ...q, includeArchived }, q);
   res.json({ ...paged(r.items, r.total, q), netAmount: r.netAmount });
 });
 
@@ -92,7 +94,9 @@ financeRouter.post('/payments', requirePermission('payment.create'), async (req,
 });
 
 financeRouter.get('/payments/:id', requirePermission('payment.view'), async (req, res) => {
-  res.json(await payments.paymentDetail(actorOf(req).orgId, zId.parse(req.params.id)));
+  const payment = await payments.paymentDetail(actorOf(req).orgId, zId.parse(req.params.id));
+  await assertTenantVisible(actorOf(req), payment.tenantId);
+  res.json(payment);
 });
 
 financeRouter.post('/payments/:id/verify', requirePermission('payment.verify'), async (req, res) => {

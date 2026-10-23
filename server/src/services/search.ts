@@ -23,7 +23,7 @@ export async function globalSearch(actor: Actor, q: string): Promise<SearchHit[]
   const [tenants, rooms, buildings, contracts, payments] = await Promise.all([
     can(actor, 'tenant.view')
       ? prisma.tenant.findMany({
-          where: { orgId, OR: [{ fullName: { contains: term } }, { phone: { contains: phoneSearchDigits(term) ?? term } }, { idNumber: { contains: term } }, { businessName: { contains: term } }] }, take, orderBy: { fullName: 'asc' },
+          where: { orgId, status: { not: 'ARCHIVED' }, OR: [{ fullName: { contains: term } }, { phone: { contains: phoneSearchDigits(term) ?? term } }, { idNumber: { contains: term } }, { businessName: { contains: term } }] }, take, orderBy: { fullName: 'asc' },
           include: { contracts: { where: { status: { in: ['ACTIVE', 'EXPIRING', 'EXPIRED'] } }, select: { room: { select: { number: true } }, building: { select: { name: true } } } } },
         })
       : [],
@@ -35,7 +35,7 @@ export async function globalSearch(actor: Actor, q: string): Promise<SearchHit[]
       : [],
     can(actor, 'building.view') ? prisma.building.findMany({ where: { orgId, OR: [{ name: { contains: term } }, { code: { contains: term } }] }, take }) : [],
     can(actor, 'contract.view')
-      ? prisma.contract.findMany({ where: { orgId, contractNumber: { contains: term } }, take, orderBy: { createdAt: 'desc' }, include: { tenant: { select: { fullName: true } }, room: { select: { number: true } }, building: { select: { name: true } } } })
+      ? prisma.contract.findMany({ where: { orgId, contractNumber: { contains: term }, tenant: { status: { not: 'ARCHIVED' } } }, take, orderBy: { createdAt: 'desc' }, include: { tenant: { select: { fullName: true } }, room: { select: { number: true } }, building: { select: { name: true } } } })
       : [],
     // Receipt numbers and payment references always contain digits; looking them up separately (receipts, then
     // references) keeps the search fast with hundreds of thousands of payments.
@@ -47,7 +47,7 @@ export async function globalSearch(actor: Actor, q: string): Promise<SearchHit[]
           ]);
           const ids = [...new Set([...byReceipt.map((r) => r.paymentId), ...byReference.map((p) => p.id)])].slice(0, take);
           return prisma.payment.findMany({
-            where: { id: { in: ids }, type: 'PAYMENT' }, orderBy: { paidAt: 'desc' },
+            where: { id: { in: ids }, type: 'PAYMENT', tenant: { status: { not: 'ARCHIVED' } } }, orderBy: { paidAt: 'desc' },
             include: { tenant: { select: { fullName: true } }, room: { select: { number: true } }, building: { select: { name: true } }, receipt: { select: { receiptNumber: true } }, method: { select: { name: true } } },
           });
         })()

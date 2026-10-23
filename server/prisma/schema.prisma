@@ -45,6 +45,8 @@ enum TenantStatus {
   INACTIVE
   FORMER
   BLACKLISTED
+  /// Removed from use: tenancy ended, unpaid rent waived, hidden from lists. Payments still count in totals.
+  ARCHIVED
 }
 
 enum ContractStatus {
@@ -513,6 +515,7 @@ model Tenant {
   notes                 String?      @db.Text
   status                TenantStatus @default(INACTIVE)
   statusReason          String?      @db.VarChar(255)
+  archivedAt            DateTime?
   createdAt             DateTime     @default(now())
   updatedAt             DateTime     @updatedAt
 

@@ -13,6 +13,7 @@ export const PERMISSIONS = {
   'tenant.view': ['Tenants', 'View tenants'],
   'tenant.manage': ['Tenants', 'Create and edit tenants'],
   'tenant.blacklist': ['Tenants', 'Blacklist or un-blacklist a tenant'],
+  'tenant.archive': ['Tenants', 'Archive tenants (ends their tenancy, cancels unpaid rent, hides them) and see or restore archived tenants'],
   'contract.view': ['Contracts', 'View contracts'],
   'contract.manage': ['Contracts', 'Create, activate and renew contracts'],
   'contract.terminate': ['Contracts', 'Terminate contracts (move-out)'],

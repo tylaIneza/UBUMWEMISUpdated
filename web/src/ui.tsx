@@ -18,7 +18,7 @@ const STATUS: Record<string, [Tone, string]> = {
   PAID: ['green', '✓'], OCCUPIED: ['green', '●'], COMPLETED: ['green', '✓'], VERIFIED: ['green', '✓'], ACTIVE: ['green', '●'], APPROVED: ['green', '✓'], ISSUED: ['green', '✓'], POSTED: ['green', '✓'], OPEN: ['green', '●'], SENT: ['green', '✓'], CONVERTED: ['green', '✓'],
   PARTIAL: ['amber', '◐'], PENDING: ['amber', '…'], RESERVED: ['amber', '◆'], EXPIRING: ['amber', '!'], SUBMITTED: ['amber', '…'], GENERATED: ['amber', '…'], IN_PROGRESS: ['amber', '◐'], ASSIGNED: ['amber', '◐'], REPORTED: ['amber', '!'], MEDIUM: ['amber', '▲'], DRAFT: ['gray', '✎'], UNPAID: ['amber', '○'],
   OVERDUE: ['red', '!'], FAILED: ['red', '✕'], CRITICAL: ['red', '‼'], HIGH: ['red', '▲'], EXPIRED: ['red', '!'], REJECTED: ['red', '✕'], REVERSED: ['red', '↺'], REVERSAL: ['red', '↺'], BLACKLISTED: ['red', '⊘'], MAINTENANCE: ['red', '✚'], DISABLED: ['red', '⊘'], VOIDED: ['red', '✕'],
-  VACANT: ['gray', '○'], INACTIVE: ['gray', '–'], FORMER: ['gray', '–'], TERMINATED: ['gray', '■'], RENEWED: ['blue', '↻'], CANCELLED: ['gray', '✕'], VOID: ['gray', '✕'], WAIVED: ['blue', '≈'], LOW: ['gray', '▽'], CLOSED: ['gray', '■'],
+  VACANT: ['gray', '○'], INACTIVE: ['gray', '–'], FORMER: ['gray', '–'], TERMINATED: ['gray', '■'], RENEWED: ['blue', '↻'], CANCELLED: ['gray', '✕'], VOID: ['gray', '✕'], WAIVED: ['blue', '≈'], LOW: ['gray', '▽'], CLOSED: ['gray', '■'], ARCHIVED: ['gray', '▣'],
 };
 
 export function Badge({ status, text }: { status: string; text?: string }) {

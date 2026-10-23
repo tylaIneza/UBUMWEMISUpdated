@@ -88,6 +88,7 @@ export async function createContractTx(tx: Tx, actor: Actor, input: ContractInpu
     const tenant = await tx.tenant.findFirst({ where: { id: input.tenantId, orgId: actor.orgId } });
     if (!tenant) throw notFound('Tenant');
     if (tenant.status === 'BLACKLISTED') throw conflict(`${tenant.fullName} is blacklisted and cannot be given a new contract.`, 'TENANT_BLACKLISTED');
+    if (tenant.status === 'ARCHIVED') throw conflict(`${tenant.fullName} is archived. Restore them first.`, 'TENANT_ARCHIVED');
     const { room, reservationId } = await assertRoomAssignable(tx, actor.orgId, input.roomId, input.tenantId);
 
     const roomRent = (await roomRentOn(tx, room.id, input.startDate)) ?? money(room.monthlyRent);
@@ -501,6 +502,8 @@ export interface ContractFilter {
   status?: string;
   q?: string;
   expiringBefore?: Date;
+  /** Include contracts of archived tenants (only when the viewer may see them and asked for one tenant). */
+  includeArchived?: boolean;
 }
 
 export async function listContracts(orgId: string, f: ContractFilter, page: { page: number; pageSize: number }) {
@@ -513,6 +516,7 @@ export async function listContracts(orgId: string, f: ContractFilter, page: { pa
     ...(f.status === 'OCCUPYING' ? { status: { in: [...OCCUPYING_STATUSES] } } : f.status ? { status: f.status as Prisma.ContractWhereInput['status'] } : {}),
     ...(f.expiringBefore ? { endDate: { lte: f.expiringBefore } } : {}),
     ...(f.q ? { OR: [{ contractNumber: { contains: f.q } }, { tenant: { fullName: { contains: f.q } } }, { room: { number: { contains: f.q } } }] } : {}),
+    ...(f.includeArchived ? {} : { tenant: { status: { not: 'ARCHIVED' } } }),
   };
   const [total, items] = await Promise.all([
     prisma.contract.count({ where }),

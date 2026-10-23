@@ -1,13 +1,17 @@
 import { inTransaction, prisma, Prisma } from '../db.js';
 import { badRequest, conflict, forbidden, notFound } from '../errors.js';
 import { can, type Actor } from '../http/context.js';
-import { money, sum, ZERO } from '../lib/money.js';
+import { formatMoney, money, sum, ZERO } from '../lib/money.js';
 import { parsePhone, phoneSearchDigits } from '../lib/phone.js';
 import { idNumberProblem, normalizeIdNumber, normalizeTin, tinProblem, type IdType } from '../lib/identity.js';
+import { isoDate, periodLabel } from '../lib/dates.js';
 import { audit, diff } from './audit.js';
-import { createContractTx, OPEN_END } from './contracts.js';
+import { deriveStatus } from './charges.js';
+import { createContractTx, OPEN_END, terminateContract } from './contracts.js';
 import { orgToday } from './org.js';
-import { BILLABLE_STATUSES, OCCUPYING_STATUSES } from './property.js';
+import { assertPeriodOpen } from './periods.js';
+import { BILLABLE_STATUSES, endReservation, OCCUPYING_STATUSES } from './property.js';
+import { clearReconcileCache } from './reconcileCache.js';
 
 export interface TenantInput {
   fullName: string;
@@ -116,6 +120,7 @@ export async function setTenantStatus(actor: Actor, id: string, status: 'INACTIV
   return inTransaction(async (tx) => {
     const tenant = await tx.tenant.findFirst({ where: { id, orgId: actor.orgId } });
     if (!tenant) throw notFound('Tenant');
+    if (tenant.status === 'ARCHIVED') throw conflict(`${tenant.fullName} is archived. Restore them first.`, 'TENANT_ARCHIVED');
     const blacklistChange = status === 'BLACKLISTED' || tenant.status === 'BLACKLISTED';
     if (blacklistChange) {
       if (!can(actor, 'tenant.blacklist')) throw forbidden('You are not authorised to change a tenant\'s blacklist status.');
@@ -125,6 +130,74 @@ export async function setTenantStatus(actor: Actor, id: string, status: 'INACTIV
     if (occupying > 0 && status !== 'BLACKLISTED') throw conflict('This tenant has an active contract. Terminate the contract first.', 'TENANT_ACTIVE');
     const updated = await tx.tenant.update({ where: { id }, data: { status, statusReason: reason?.trim() || null } });
     await audit(tx, actor, { action: status === 'BLACKLISTED' ? 'TENANT_BLACKLISTED' : 'TENANT_STATUS_CHANGED', entityType: 'Tenant', entityId: id, summary: `Tenant ${tenant.fullName}: ${tenant.status} → ${status}${reason ? ` (${reason})` : ''}`, oldValue: { status: tenant.status }, newValue: { status, reason } });
+    return updated;
+  });
+}
+
+/**
+ * Archives a tenant who should no longer appear in the system: their tenancy ends today (as a move-out, so the room is
+ * free and no further rent is billed), any rent still owed is waived, active reservations are cancelled, and the tenant
+ * is hidden from lists, search and reminders. Payments they made stay in the books and in every total and report.
+ * Months already owed must lie in open accounting periods; this is checked before anything is changed.
+ */
+export async function archiveTenant(actor: Actor, id: string, reason: string) {
+  const tenant = await prisma.tenant.findFirst({ where: { id, orgId: actor.orgId } });
+  if (!tenant) throw notFound('Tenant');
+  if (tenant.status === 'ARCHIVED') throw conflict(`${tenant.fullName} is already archived.`, 'ALREADY_ARCHIVED');
+  if (!reason.trim()) throw badRequest('Give a reason for archiving.', 'REASON_REQUIRED');
+  const today = await orgToday(actor.orgId);
+  const occupying = await prisma.contract.findMany({ where: { tenantId: id, status: { in: [...OCCUPYING_STATUSES] } } });
+  const notStarted = occupying.find((c) => c.startDate > today);
+  if (notStarted) {
+    throw conflict(`${tenant.fullName}'s tenancy ${notStarted.contractNumber} only starts on ${isoDate(notStarted.startDate)}. Correct its start date first, or archive the tenant on or after that day.`, 'NOT_STARTED');
+  }
+  const owing = await prisma.rentCharge.findMany({ where: { tenantId: id, status: { in: ['UNPAID', 'PARTIAL', 'OVERDUE'] }, period: { lte: today } }, select: { period: true } });
+  for (const c of owing) await assertPeriodOpen(prisma, actor.orgId, c.period, `The unpaid rent for ${periodLabel(c.period)}`);
+
+  for (const c of occupying) await terminateContract(actor, c.id, { moveOutDate: today, reason: `Tenant archived: ${reason.trim()}` });
+  const reservations = await prisma.reservation.findMany({ where: { tenantId: id, status: 'ACTIVE' }, select: { id: true } });
+  for (const r of reservations) await endReservation(actor, actor.orgId, r.id, 'CANCELLED');
+
+  const archived = await inTransaction(async (tx) => {
+    const open = await tx.rentCharge.findMany({ where: { tenantId: id, status: { in: ['UNPAID', 'PARTIAL', 'OVERDUE'] } }, orderBy: { period: 'asc' } });
+    const waived: Array<{ period: string; amount: string }> = [];
+    for (const charge of open) {
+      await assertPeriodOpen(tx, actor.orgId, charge.period, `The unpaid rent for ${periodLabel(charge.period)}`);
+      const amount = money(charge.balance);
+      const amountWaived = money(charge.amountWaived).plus(amount);
+      const status = deriveStatus({ amountDue: money(charge.amountDue), amountPaid: money(charge.amountPaid), amountWaived, overdueFrom: charge.overdueFrom }, today);
+      await tx.rentCharge.update({ where: { id: charge.id }, data: { amountWaived, balance: ZERO, status, note: `Waived ${formatMoney(amount)}: tenant archived — ${reason.trim()}`.slice(0, 255) } });
+      waived.push({ period: isoDate(charge.period), amount: amount.toFixed(2) });
+    }
+    await tx.contract.deleteMany({ where: { tenantId: id, status: 'DRAFT' } });
+    const updated = await tx.tenant.update({ where: { id }, data: { status: 'ARCHIVED', statusReason: reason.trim().slice(0, 255), archivedAt: new Date() } });
+    const total = sum(waived.map((w) => w.amount));
+    await audit(tx, actor, {
+      action: 'TENANT_ARCHIVED', entityType: 'Tenant', entityId: id,
+      summary: `Tenant ${tenant.fullName} archived: ${occupying.length} tenancy(ies) ended ${isoDate(today)}, ${waived.length ? `${formatMoney(total)} unpaid rent waived` : 'nothing owed'}. Reason: ${reason.trim()}`,
+      oldValue: { status: tenant.status }, newValue: { status: 'ARCHIVED', endedContracts: occupying.map((c) => c.contractNumber), waived, reason: reason.trim() },
+    });
+    return updated;
+  });
+  clearReconcileCache(actor.orgId);
+  return archived;
+}
+
+/** Archived tenants (and their contracts and payments) exist only for those allowed to manage the archive. */
+export async function assertTenantVisible(actor: Actor, tenantId: string): Promise<void> {
+  if (can(actor, 'tenant.archive')) return;
+  const tenant = await prisma.tenant.findFirst({ where: { id: tenantId, orgId: actor.orgId }, select: { status: true } });
+  if (tenant?.status === 'ARCHIVED') throw notFound('Tenant');
+}
+
+/** Brings an archived tenant back into the lists as a former tenant. Ended tenancies and waivers stay as they are. */
+export async function restoreTenant(actor: Actor, id: string) {
+  return inTransaction(async (tx) => {
+    const tenant = await tx.tenant.findFirst({ where: { id, orgId: actor.orgId } });
+    if (!tenant) throw notFound('Tenant');
+    if (tenant.status !== 'ARCHIVED') throw conflict(`${tenant.fullName} is not archived.`, 'NOT_ARCHIVED');
+    const updated = await tx.tenant.update({ where: { id }, data: { status: 'FORMER', statusReason: null, archivedAt: null } });
+    await audit(tx, actor, { action: 'TENANT_RESTORED', entityType: 'Tenant', entityId: id, summary: `Tenant ${tenant.fullName} restored from the archive (now a former tenant)`, oldValue: { status: 'ARCHIVED' }, newValue: { status: 'FORMER' } });
     return updated;
   });
 }
@@ -140,7 +213,8 @@ export interface TenantFilter {
 export async function listTenants(orgId: string, f: TenantFilter, page: { page: number; pageSize: number }, sort?: string, dir: 'asc' | 'desc' = 'asc') {
   const where: Prisma.TenantWhereInput = {
     orgId,
-    ...(f.status ? { status: f.status as Prisma.TenantWhereInput['status'] } : {}),
+    // Archived tenants are listed only when asked for (status=ARCHIVED, allowed by the route).
+    ...(f.status ? { status: f.status as Prisma.TenantWhereInput['status'] } : { status: { not: 'ARCHIVED' } }),
     ...(f.buildingId || f.floorId
       ? { contracts: { some: { status: { in: [...OCCUPYING_STATUSES] }, ...(f.buildingId ? { buildingId: f.buildingId } : {}), ...(f.floorId ? { floorId: f.floorId } : {}) } } }
       : {}),
@@ -215,6 +289,8 @@ export interface LedgerFilter {
   /** Only rent whose due date has passed and is not fully paid (unpaid, partly paid or overdue). */
   owingOnly?: boolean;
   includeVoid?: boolean;
+  /** Include rent of archived tenants (only when the viewer may see them and asked for one tenant or contract). */
+  includeArchived?: boolean;
 }
 
 /** Rent ledger rows (one per billed month) with the payments applied to each. */
@@ -230,6 +306,7 @@ export async function rentLedger(orgId: string, f: LedgerFilter, page: { page: n
     // Due date already passed — the same rule as the arrears report, so its PDF matches this list.
     ...(f.owingOnly ? { AND: [{ balance: { gt: 0 }, dueDate: { lt: today }, status: { in: ['UNPAID', 'PARTIAL', 'OVERDUE'] } }] } : {}),
     ...(f.from || f.to ? { period: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) } } : {}),
+    ...(f.includeArchived ? {} : { tenant: { status: { not: 'ARCHIVED' } } }),
   };
   const [total, items, totals] = await Promise.all([
     prisma.rentCharge.count({ where }),

@@ -39,7 +39,7 @@ export function Tenants() {
       <Card pad={false}>
         <div className="filters no-print">
           <TextInput wide label="Search" value={search} onChange={setSearch} placeholder="Name, phone, ID number, business" />
-          <Select label="Status" value={status} onChange={(v) => set('status', v)} all="All statuses" options={enumOpts(['ACTIVE', 'INACTIVE', 'FORMER', 'BLACKLISTED'])} />
+          <Select label="Status" value={status} onChange={(v) => set('status', v)} all="All statuses" options={enumOpts(['ACTIVE', 'INACTIVE', 'FORMER', 'BLACKLISTED', ...(can('tenant.archive') ? ['ARCHIVED'] : [])])} />
           <Select label="Balance" value={withArrears ? 'true' : ''} onChange={(v) => set('withArrears', v)} all="Any" options={[{ value: 'true', label: 'Owing rent' }]} />
         </div>
         <Table rows={list.data?.items} onRow={(t: any) => navigate(`/tenants/${t.id}`)} empty={<Empty title="No tenants found" />} columns={[
@@ -111,7 +111,9 @@ export function TenantDetail() {
   const navigate = useNavigate();
   const q = useApi(`/tenants/${id}`);
   const [tab, setTab] = useState<TenantTab>('overview');
-  const [dialog, setDialog] = useState<'' | 'edit' | 'room' | 'blacklist' | 'unblacklist' | 'delete'>('');
+  const [dialog, setDialog] = useState<'' | 'edit' | 'room' | 'blacklist' | 'unblacklist' | 'delete' | 'archive' | 'restore'>('');
+  const archive = useAction((v: any) => api.post(`/tenants/${id}/archive`, v), 'Tenant archived.');
+  const restore = useAction(() => api.post(`/tenants/${id}/restore`, {}), 'Tenant restored as a former tenant.');
   const save = useAction((v: any) => api.patch(`/tenants/${id}`, v), 'Tenant updated.');
   const assignRoom = useAction((v: any) => api.post('/contracts', { ...v, tenantId: id, endDate: v.startDate, activate: true, withLease: false }), 'Room assigned. Rent is now billed and payments can be recorded.');
   const rooms = useApi('/rooms/map', undefined, dialog === 'room');
@@ -122,20 +124,23 @@ export function TenantDetail() {
   const t = q.data;
   const current = t.currentContracts[0];
   const noContract = t.currentContracts.find((c: any) => !c.leaseStart);
+  const archived = t.status === 'ARCHIVED';
   const payable = t.contracts.filter((c: any) => c.status !== 'DRAFT' && (c.billable || Number(c.outstanding) > 0));
   return (
     <div className="stack">
       <PageHead title={<>{t.fullName} <Badge status={t.status} /></>} sub={[t.businessName, t.phone && phone(t.phone), t.idNumber && `ID ${t.idNumber}`].filter(Boolean).join(' · ') || undefined}>
-        {can('payment.create') && payable.length > 0 && <Link className="btn primary" to={`/payments/new?contractId=${(payable.find((c: any) => Number(c.outstanding) > 0) ?? payable[0]).id}`}>Record payment</Link>}
-        {can('contract.manage') && noContract && <Link className="btn" to={`/contracts/${noContract.id}`} title="Open the tenancy and press Give contract">Give contract</Link>}
-        {can('contract.manage') && t.status !== 'BLACKLISTED' && !t.currentContracts.length && <Button onClick={() => setDialog('room')}>Assign room</Button>}
-        {can('contract.manage') && t.status !== 'BLACKLISTED' && !noContract && <Link className="btn" to={`/contracts/new?tenantId=${t.id}`}>New contract</Link>}
+        {can('tenant.archive') && (archived ? <Button variant="primary" onClick={() => setDialog('restore')}>Restore tenant</Button> : <Button onClick={() => setDialog('archive')}>Archive tenant</Button>)}
+        {!archived && can('payment.create') && payable.length > 0 && <Link className="btn primary" to={`/payments/new?contractId=${(payable.find((c: any) => Number(c.outstanding) > 0) ?? payable[0]).id}`}>Record payment</Link>}
+        {!archived && can('contract.manage') && noContract && <Link className="btn" to={`/contracts/${noContract.id}`} title="Open the tenancy and press Give contract">Give contract</Link>}
+        {!archived && can('contract.manage') && t.status !== 'BLACKLISTED' && !t.currentContracts.length && <Button onClick={() => setDialog('room')}>Assign room</Button>}
+        {!archived && can('contract.manage') && t.status !== 'BLACKLISTED' && !noContract && <Link className="btn" to={`/contracts/new?tenantId=${t.id}`}>New contract</Link>}
         {can('tenant.manage') && <Button onClick={() => setDialog('edit')}>Edit</Button>}
         {can('data.delete') && <Button variant="ghost" onClick={() => setDialog('delete')}>Delete</Button>}
-        {can('tenant.blacklist') && (t.status === 'BLACKLISTED' ? <Button onClick={() => setDialog('unblacklist')}>Remove from blacklist</Button> : <Button onClick={() => setDialog('blacklist')}>Blacklist</Button>)}
+        {!archived && can('tenant.blacklist') && (t.status === 'BLACKLISTED' ? <Button onClick={() => setDialog('unblacklist')}>Remove from blacklist</Button> : <Button onClick={() => setDialog('blacklist')}>Blacklist</Button>)}
       </PageHead>
       {t.phoneProblem && <Alert tone="amber"><strong>This tenant’s phone number ({t.phone}) is not valid:</strong> {t.phoneProblem} Reminders cannot reach them by SMS. {can('tenant.manage') && 'Press Edit to correct it.'}</Alert>}
       {t.idNumberProblem && <Alert tone="amber"><strong>This tenant’s ID number ({t.idNumber}) is not valid:</strong> {t.idNumberProblem} {can('tenant.manage') && 'Press Edit to correct it.'}</Alert>}
+      {archived && <Alert tone="blue"><strong>Archived{t.archivedAt ? ` on ${date(t.archivedAt)}` : ''}</strong>{t.statusReason ? `: ${t.statusReason}` : ''}. This tenant is hidden from tenant, payment and contract lists, search and reminders. The payments they made still count in all totals and reports. Press “Restore tenant” to bring them back as a former tenant.</Alert>}
       {t.status === 'BLACKLISTED' && <Alert>Blacklisted{t.statusReason ? `: ${t.statusReason}` : ''}. This tenant cannot be given a new contract.</Alert>}
 
       <div className="grid c4">
@@ -183,6 +188,18 @@ export function TenantDetail() {
           <AutoForm fields={TENANT_FIELDS} initial={Object.fromEntries(TENANT_FIELDS.map((f) => [f.name, t[f.name] ?? '']))} onCancel={() => setDialog('')} onSubmit={async (v) => { await save.mutateAsync(v); setDialog(''); }} />
         </Modal>
       )}
+      {dialog === 'archive' && (
+        <Confirm title={`Archive ${t.fullName}?`} danger confirmLabel="Archive tenant" reason="Reason (kept on record)" onClose={() => setDialog('')} onConfirm={(reason) => archive.mutateAsync({ reason })}>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {t.currentContracts.length > 0 && <li>Their tenancy ends today: {t.currentContracts.map((c: any) => `room ${c.room.number}`).join(', ')} becomes free and no more rent is billed.</li>}
+            {Number(t.financial.outstanding) > 0 ? <li>The rent they still owe, <strong>{money(t.financial.outstanding)}</strong>, is cancelled (waived).</li> : <li>They owe no rent.</li>}
+            <li>They disappear from tenant, payment and contract lists, search and reminders. Only people allowed to archive tenants can still open them.</li>
+            <li>The <strong>{money(t.financial.totalPaid)}</strong> they paid stays in the books and keeps counting in totals and reports.</li>
+            <li>A security deposit, if any, is not refunded automatically. Refund it from their contract page.</li>
+          </ul>
+        </Confirm>
+      )}
+      {dialog === 'restore' && <Confirm title={`Restore ${t.fullName}?`} confirmLabel="Restore tenant" onClose={() => setDialog('')} onConfirm={() => restore.mutateAsync(undefined as never)}>{t.fullName} will appear in the lists again as a former tenant. Their ended tenancy and the rent that was waived stay as they are; to rent a room to them again, create a new contract.</Confirm>}
       {dialog === 'room' && (
         <Modal title={`Assign a room to ${t.fullName}`} onClose={() => setDialog('')}>
           {!rooms.data ? <Loading /> : (

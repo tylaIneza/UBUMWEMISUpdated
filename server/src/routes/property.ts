@@ -2,8 +2,8 @@ import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import { config } from '../config.js';
-import { badRequest } from '../errors.js';
-import { actorOf } from '../http/context.js';
+import { badRequest, forbidden } from '../errors.js';
+import { actorOf, can } from '../http/context.js';
 import { requirePermission, requireAuth } from '../http/middleware.js';
 import { paged, zDate, zEmail, zId, zMoney, zOptionalDate, zOptionalId, zOptionalMoney, zPage, zPhone, zPositiveMoney, zRequiredText, zText, zTextNullable } from '../http/validation.js';
 import * as contracts from '../services/contracts.js';
@@ -138,6 +138,7 @@ const zNewTenant = zTenant.extend({
 
 propertyRouter.get('/tenants', requirePermission('tenant.view'), async (req, res) => {
   const q = zPage.extend({ status: zText(20), buildingId: zOptionalId, floorId: zOptionalId, withArrears: zBool }).parse(req.query);
+  if (q.status === 'ARCHIVED' && !can(actorOf(req), 'tenant.archive')) throw forbidden('You are not allowed to see archived tenants.');
   const r = await tenants.listTenants(actorOf(req).orgId, q, q, q.sort, q.dir);
   res.json(paged(r.items, r.total, q));
 });
@@ -161,7 +162,16 @@ propertyRouter.post('/tenants', requirePermission('tenant.manage'), async (req, 
   res.status(201).json(await tenants.createTenant(actorOf(req), tenant, roomId && startDate ? { roomId, startDate } : undefined));
 });
 propertyRouter.get('/tenants/:id', requirePermission('tenant.view'), async (req, res) => {
-  res.json(await tenants.tenantDetail(actorOf(req).orgId, zId.parse(req.params.id)));
+  const id = zId.parse(req.params.id);
+  await tenants.assertTenantVisible(actorOf(req), id);
+  res.json(await tenants.tenantDetail(actorOf(req).orgId, id));
+});
+propertyRouter.post('/tenants/:id/archive', requirePermission('tenant.archive'), async (req, res) => {
+  const body = z.object({ reason: zRequiredText(255, 'Reason') }).parse(req.body);
+  res.json(await tenants.archiveTenant(actorOf(req), zId.parse(req.params.id), body.reason));
+});
+propertyRouter.post('/tenants/:id/restore', requirePermission('tenant.archive'), async (req, res) => {
+  res.json(await tenants.restoreTenant(actorOf(req), zId.parse(req.params.id)));
 });
 propertyRouter.patch('/tenants/:id', requirePermission('tenant.manage'), async (req, res) => {
   res.json(await tenants.updateTenant(actorOf(req), zId.parse(req.params.id), zTenant.partial().parse(req.body)));
@@ -182,7 +192,7 @@ const zGrace = z.coerce.number().int().min(0).max(90);
 
 propertyRouter.get('/contracts', requirePermission('contract.view'), async (req, res) => {
   const q = zPage.extend({ buildingId: zOptionalId, floorId: zOptionalId, roomId: zOptionalId, tenantId: zOptionalId, status: zText(20), expiringBefore: zOptionalDate }).parse(req.query);
-  const r = await contracts.listContracts(actorOf(req).orgId, q, q);
+  const r = await contracts.listContracts(actorOf(req).orgId, { ...q, includeArchived: Boolean(q.tenantId) && can(actorOf(req), 'tenant.archive') }, q);
   res.json(paged(r.items, r.total, q));
 });
 propertyRouter.post('/contracts', requirePermission('contract.manage'), async (req, res) => {
@@ -195,7 +205,9 @@ propertyRouter.post('/contracts', requirePermission('contract.manage'), async (r
   res.status(201).json(await contracts.createContract(actorOf(req), body));
 });
 propertyRouter.get('/contracts/:id', requirePermission('contract.view'), async (req, res) => {
-  res.json(await contracts.contractDetail(actorOf(req).orgId, zId.parse(req.params.id)));
+  const contract = await contracts.contractDetail(actorOf(req).orgId, zId.parse(req.params.id));
+  await tenants.assertTenantVisible(actorOf(req), contract.tenantId);
+  res.json(contract);
 });
 propertyRouter.patch('/contracts/:id', requirePermission('contract.manage'), async (req, res) => {
   const body = z.object({ paymentDueDay: zDueDay.optional(), graceDays: zGrace.optional(), specialTerms: zTextNullable(8000), startDate: zOptionalDate, endDate: zOptionalDate, depositAmount: zOptionalMoney }).parse(req.body);
