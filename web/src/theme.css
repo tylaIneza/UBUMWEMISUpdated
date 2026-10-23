@@ -166,3 +166,9 @@
     #building-filter { flex: 1; min-width: 0; max-width: none !important; } .page-head .row .btn { flex: 1 1 calc(50% - 8px); }
   }
 }
+
+/* Dashboard wallpaper: aerial photo of the Kigali Convention Centre behind the whole page, darkened so cards stay readable. */
+@media screen {
+  .dash-wallpaper { position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background: linear-gradient(180deg, rgba(5, 13, 28, 0.55) 0%, rgba(5, 13, 28, 0.78) 45%, rgba(5, 13, 28, 0.9) 100%), url(/brand/kcc.jpg) center 35% / cover no-repeat; }
+}

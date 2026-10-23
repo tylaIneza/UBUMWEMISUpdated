@@ -333,15 +333,22 @@ export interface ReceiptData {
   recordedBy: string;
 }
 
-export async function receiptToPdf(r: ReceiptData, state: { voided: boolean; voidReason?: string | null; ebmReference?: string | null; isDemoData: boolean }): Promise<Buffer> {
+/** `logo` is the building's logo (the picture at the top of its lease contract), printed beside the company name. */
+export async function receiptToPdf(r: ReceiptData, state: { voided: boolean; voidReason?: string | null; ebmReference?: string | null; isDemoData: boolean; logo?: { data: Buffer } | null }): Promise<Buffer> {
   const doc = new PDFDocument({ size: 'A5', margin: 32, info: { Title: `Receipt ${r.receiptNumber}`, Author: r.organization.name } });
   const done = collect(doc);
   const left = doc.page.margins.left;
   const width = doc.page.width - left * 2;
   const cur = r.currency;
 
-  doc.font('Helvetica-Bold').fontSize(14).fillColor(INK).text(r.organization.name, left);
-  doc.font('Helvetica').fontSize(8).fillColor(MUTED).text([r.organization.address, r.organization.phone, r.organization.tin ? `TIN ${r.organization.tin}` : ''].filter(Boolean).join('  ·  '));
+  const top = doc.y;
+  const logo = state.logo ? { w: 110, h: 50 } : null;
+  if (logo) doc.image(state.logo!.data, left, top, { fit: [logo.w, logo.h], valign: 'center' });
+  const tx = logo ? left + logo.w + 12 : left;
+  doc.font('Helvetica-Bold').fontSize(14).fillColor(INK).text(r.organization.name, tx, top + (logo ? 6 : 0), { width: width - (tx - left) });
+  doc.font('Helvetica').fontSize(8).fillColor(MUTED).text([r.organization.address, r.organization.phone, r.organization.tin ? `TIN ${r.organization.tin}` : ''].filter(Boolean).join('  ·  '), tx, doc.y, { width: width - (tx - left) });
+  if (logo) doc.y = Math.max(doc.y, top + logo.h);
+  doc.x = left;
   doc.moveDown(0.6).moveTo(left, doc.y).lineTo(left + width, doc.y).lineWidth(1).strokeColor(INK).stroke();
   doc.moveDown(0.6).font('Helvetica-Bold').fontSize(12).fillColor(INK).text('RENT PAYMENT RECEIPT');
   doc.font('Helvetica').fontSize(9).fillColor(MUTED).text(`Receipt number: ${r.receiptNumber}        Date: ${longDate(parseDate(r.businessDate))}`);

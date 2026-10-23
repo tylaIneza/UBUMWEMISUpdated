@@ -10,6 +10,7 @@ import { formatMoney } from '../lib/money.js';
 import * as approvals from '../services/approvals.js';
 import * as deposits from '../services/deposits.js';
 import * as expenses from '../services/expenses.js';
+import { templateLogo } from '../services/contractDocument.js';
 import { receiptToPdf, reportToExcel, reportToPdf, type ReceiptData } from '../services/exporters.js';
 import * as invoices from '../services/invoices.js';
 import * as messages from '../services/messages.js';
@@ -115,7 +116,12 @@ financeRouter.get('/payments/:id/receipt.pdf', requirePermission('payment.view')
   const payment = await prisma.payment.findFirst({ where: { id: zId.parse(req.params.id), orgId: actor.orgId }, include: { receipt: true, invoice: true } });
   if (!payment?.receipt) throw notFound('Receipt');
   const org = await getOrg(actor.orgId);
-  const pdf = await receiptToPdf(payment.receipt.snapshot as unknown as ReceiptData, { voided: Boolean(payment.receipt.voidedAt), voidReason: payment.receipt.voidReason, ebmReference: payment.invoice?.ebmReference, isDemoData: org.isDemo });
+  // The receipt carries the logo of the tenant's building: the one printed on that building's lease contract.
+  const building = await prisma.building.findUnique({ where: { id: payment.buildingId }, select: { contractTemplate: true } });
+  const pdf = await receiptToPdf(payment.receipt.snapshot as unknown as ReceiptData, {
+    voided: Boolean(payment.receipt.voidedAt), voidReason: payment.receipt.voidReason, ebmReference: payment.invoice?.ebmReference, isDemoData: org.isDemo,
+    logo: await templateLogo(building?.contractTemplate),
+  });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename="${payment.receipt.receiptNumber}.pdf"`);
   res.send(pdf);

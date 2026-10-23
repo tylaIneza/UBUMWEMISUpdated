@@ -51,32 +51,12 @@ function Brand({ compact }: { compact?: boolean }) {
 }
 
 function BrandPanel() {
-  const [photo, setPhoto] = useState(true);
   return (
     <aside className="ax-brand" aria-label="UBUMWE HOUSE">
       <div className="ax-glow one" /><div className="ax-glow two" />
       <div className="ax-brand-top ax-rise" style={{ animationDelay: '0ms' }}><Brand /></div>
       <div className="ax-visual ax-rise" style={{ animationDelay: '80ms' }}>
-        {photo ? <img src="/brand/building.jpg" alt="UBUMWE HOUSE building" onError={() => setPhoto(false)} /> : (
-          // Drawn illustration shown until a real building photo is added to /brand.
-          <svg viewBox="0 0 400 420" role="img" aria-label="Illustration of a commercial building" preserveAspectRatio="xMidYMax slice">
-            <defs>
-              <linearGradient id="ax-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#1b3a6b" /><stop offset="1" stopColor="#0b1b36" /></linearGradient>
-              <linearGradient id="ax-tower" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#3b82f6" /><stop offset="1" stopColor="#1e40af" /></linearGradient>
-            </defs>
-            <rect width="400" height="420" fill="url(#ax-sky)" />
-            <circle cx="318" cy="84" r="46" fill="#60a5fa" opacity=".18" />
-            <rect x="34" y="210" width="96" height="210" rx="6" fill="#16305a" />
-            <rect x="286" y="170" width="86" height="250" rx="6" fill="#16305a" />
-            <rect x="122" y="92" width="170" height="328" rx="10" fill="url(#ax-tower)" />
-            {Array.from({ length: 8 }, (_, r) => Array.from({ length: 4 }, (_, c) => (
-              <rect key={`${r}-${c}`} x={140 + c * 36} y={114 + r * 34} width="24" height="20" rx="3" fill="#eaf2ff" opacity={(r * 3 + c * 5) % 4 === 0 ? 0.95 : 0.32} />
-            )))}
-            {Array.from({ length: 5 }, (_, r) => <rect key={r} x="50" y={230 + r * 34} width="64" height="14" rx="3" fill="#93c5fd" opacity={r % 2 ? 0.5 : 0.25} />)}
-            {Array.from({ length: 6 }, (_, r) => <rect key={r} x="300" y={190 + r * 34} width="58" height="14" rx="3" fill="#93c5fd" opacity={r % 2 ? 0.25 : 0.5} />)}
-            <rect x="184" y="372" width="46" height="48" rx="4" fill="#0b1b36" /><rect y="412" width="400" height="8" fill="#0a1730" />
-          </svg>
-        )}
+        <img src="/brand/kcc.jpg" alt="Aerial photo of the Kigali Convention Centre" />
         <div className="ax-visual-shade" />
         <p className="ax-visual-caption">More Than Just a Building</p>
       </div>
@@ -372,6 +352,8 @@ export function Login() {
           </div>
         </div>
         <p className="ax-foot">© {new Date().getFullYear()} UBUMWE HOUSE · Secure sign-in</p>
+        {/* The KCC photo's licence (CC BY-SA 4.0) requires this credit somewhere in the app; it is kept here, off the picture. */}
+        <p className="ax-foot ax-credit">KCC photo: <a href="https://commons.wikimedia.org/wiki/File:An_aerial_of_Kigali_Convention_Center_on_June_19,_2019._Photo_by_Emmanuel_Kwizera.jpg" target="_blank" rel="noreferrer">Emmanuel Kwizera</a>, CC BY-SA 4.0</p>
       </main>
     </div>
   );
