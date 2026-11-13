@@ -69,7 +69,8 @@ export async function login(emailOrPhone: string, password: string, client: Clie
   if (user.status !== 'ACTIVE') throw new AppError(403, 'ACCOUNT_DISABLED', 'This account has been disabled. Contact your administrator.');
 
   // Second factor: when e-mail delivery is configured, the password alone does not open a session.
-  if (isEmailConfigured()) return { otp: await startLoginOtp(user, client) };
+  const otpDisabled = config.DISABLE_LOGIN_OTP === 'true' && config.NODE_ENV === 'development';
+  if (isEmailConfigured() && !otpDisabled) return { otp: await startLoginOtp(user, client) };
   return { session: await openSession(user, client) };
 }
 

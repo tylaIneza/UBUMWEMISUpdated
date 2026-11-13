@@ -27,6 +27,8 @@ const schema = z.object({
   SMS_SENDER_ID: z.string().optional(),
   DISABLE_SCHEDULER: z.enum(['true', 'false']).default('false'),
   DISABLE_RATE_LIMIT: z.enum(['true', 'false']).default('false'),
+  // Local testing only: sign in with the password alone even when e-mail is configured. Honoured only when NODE_ENV=development.
+  DISABLE_LOGIN_OTP: z.enum(['true', 'false']).default('false'),
 });
 
 export type Config = z.infer<typeof schema>;
