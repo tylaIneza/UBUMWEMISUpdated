@@ -4,7 +4,7 @@ import { api } from '../api';
 import { useAuth, useMeta } from '../auth';
 import { addDaysIso, date, money, percent, tenancyPeriod } from '../format';
 import { I } from '../icons';
-import { DocumentsPanel, LedgerTable, PaymentsTable, TimelinePanel, useAction, useApi } from '../shared';
+import { DocumentsPanel, ImportPanel, LedgerTable, PaymentsTable, TimelinePanel, useAction, useApi } from '../shared';
 import { AutoForm, Badge, type FieldDef, Button, Card, Confirm, DL, Empty, enumOpts, ErrorBox, Loading, Modal, opts, PageHead, Pager, Select, Stat, Table, Tabs, TextInput, useDebounced } from '../ui';
 
 // ───────────── Buildings ─────────────
@@ -132,6 +132,7 @@ export function Rooms() {
   const floors = useFloors(buildingId);
   const list = useApi('/rooms', { buildingId, floorId, status, q, page, pageSize: 24 });
   const [creating, setCreating] = useState(params.get('new') === '1');
+  const [importing, setImporting] = useState(false);
   const [formBuilding, setFormBuilding] = useState(buildingId);
   const formFloors = useFloors(formBuilding || undefined);
   const create = useAction((v: any) => api.post('/rooms', v), 'Room registered.');
@@ -140,6 +141,7 @@ export function Rooms() {
   return (
     <div className="stack">
       <PageHead title="Rooms" sub="Every rentable room with its rent, status and current tenant.">
+        {can('import.data') && <Button onClick={() => setImporting(true)}>Import from Excel</Button>}
         {can('room.manage') && <Button variant="primary" onClick={() => setCreating(true)}>Register room</Button>}
       </PageHead>
       <ErrorBox error={list.error} />
@@ -167,6 +169,7 @@ export function Rooms() {
             onSubmit={async (v) => { const room = await create.mutateAsync(v); setCreating(false); navigate(`/rooms/${room.id}`); }} />
         </Modal>
       )}
+      {importing && <Modal wide title="Import rooms" onClose={() => setImporting(false)}><ImportPanel scope="rooms" /></Modal>}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, newSubmissionKey } from '../api';
 import { useAuth, useMeta } from '../auth';
 import { date, dateTime, label, money, monthRange, parsePhone, phone, smsLink, tenancyPeriod } from '../format';
-import { DocumentsPanel, LedgerTable, PaymentsTable, TimelinePanel, useAction, useApi } from '../shared';
+import { DocumentsPanel, ImportPanel, LedgerTable, PaymentsTable, TimelinePanel, useAction, useApi } from '../shared';
 import { Alert, AutoForm, Badge, Button, Card, Confirm, DL, Empty, enumOpts, ErrorBox, Field, Loading, Modal, opts, PageHead, Pager, Select, Stat, Table, Tabs, TextInput, useDebounced, useToast, type FieldDef } from '../ui';
 
 // Only the name is required; the other details are printed on the contract (as blank lines when missing).
@@ -28,11 +28,13 @@ export function Tenants() {
   const withArrears = params.get('withArrears') === 'true';
   const q = useDebounced(search);
   const list = useApi('/tenants', { q, status, buildingId, withArrears: withArrears || undefined, page, pageSize: 25 });
+  const [importing, setImporting] = useState(false);
   useEffect(() => setPage(1), [q, status, buildingId, withArrears]);
   const set = (k: string, v: string) => { const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); setParams(p, { replace: true }); };
   return (
     <div className="stack">
       <PageHead title="Tenants" sub="Current and former tenants. Former tenants are kept, never deleted.">
+        {can('import.data') && <Button onClick={() => setImporting(true)}>Import from Excel</Button>}
         {can('tenant.manage') && <Link to="/tenants/new" className="btn primary">Add tenant</Link>}
       </PageHead>
       <ErrorBox error={list.error} />
@@ -52,6 +54,7 @@ export function Tenants() {
         ]} />
         <Pager data={list.data} onPage={setPage} />
       </Card>
+      {importing && <Modal wide title="Import tenants" onClose={() => setImporting(false)}><ImportPanel scope="tenants" /></Modal>}
     </div>
   );
 }

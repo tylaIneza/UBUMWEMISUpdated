@@ -310,19 +310,22 @@ propertyRouter.delete('/documents/:id', requirePermission('document.upload'), as
 
 // ───────────── Import ─────────────
 
-propertyRouter.get('/import/template', requirePermission('import.data'), async (_req, res) => {
-  const buffer = await importer.importTemplate();
+const zScope = z.enum(Object.keys(importer.IMPORT_SCOPES) as [importer.ImportScope, ...importer.ImportScope[]]).optional();
+
+propertyRouter.get('/import/template', requirePermission('import.data'), async (req, res) => {
+  const q = z.object({ for: zScope, buildingId: zOptionalId }).parse({ for: req.query.for || undefined, buildingId: req.query.buildingId || undefined });
+  const { buffer, fileName } = await importer.importTemplate(actorOf(req), q.for, q.buildingId);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', 'attachment; filename="rental-import-template.xlsx"');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
   res.send(buffer);
 });
 propertyRouter.post('/import/preview', requirePermission('import.data'), upload.single('file'), async (req, res) => {
   if (!req.file) throw badRequest('Choose a file to import.', 'FILE_MISSING');
-  const body = z.object({ sheet: zText(20) }).parse(req.body);
-  res.json(await importer.previewImport(actorOf(req), { fileName: req.file.originalname, buffer: req.file.buffer, csvSheet: body.sheet }));
+  const body = z.object({ sheet: zText(20), for: zScope, buildingId: zOptionalId }).parse(req.body);
+  res.json(await importer.previewImport(actorOf(req), { fileName: req.file.originalname, buffer: req.file.buffer, csvSheet: body.sheet, scope: body.for, buildingId: body.buildingId }));
 });
 propertyRouter.post('/import/commit', requirePermission('import.data'), upload.single('file'), async (req, res) => {
   if (!req.file) throw badRequest('Choose a file to import.', 'FILE_MISSING');
-  const body = z.object({ sheet: zText(20), confirm: z.literal('yes', { error: 'Confirm the import after reviewing the preview.' }) }).parse(req.body);
-  res.status(201).json(await importer.commitImport(actorOf(req), { fileName: req.file.originalname, buffer: req.file.buffer, csvSheet: body.sheet }));
+  const body = z.object({ sheet: zText(20), for: zScope, buildingId: zOptionalId, confirm: z.literal('yes', { error: 'Confirm the import after reviewing the preview.' }) }).parse(req.body);
+  res.status(201).json(await importer.commitImport(actorOf(req), { fileName: req.file.originalname, buffer: req.file.buffer, csvSheet: body.sheet, scope: body.for, buildingId: body.buildingId }));
 });

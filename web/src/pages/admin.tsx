@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { date, dateTime, label, month } from '../format';
-import { useAction, useApi } from '../shared';
+import { ImportPanel, useAction, useApi } from '../shared';
 import { Alert, AutoForm, Badge, Button, Card, Confirm, DL, Empty, enumOpts, ErrorBox, Loading, Modal, PageHead, Pager, Select, Table, Tabs, TextInput, useDebounced, useToast } from '../ui';
 
 // ───────────── Users & roles ─────────────
@@ -120,80 +120,6 @@ export function Users() {
 
 // ───────────── Settings ─────────────
 
-function ImportData() {
-  const input = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [sheet, setSheet] = useState('');
-  const [preview, setPreview] = useState<any>(null);
-  const [error, setError] = useState<unknown>(null);
-  const [done, setDone] = useState<any>(null);
-  const [confirm, setConfirm] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const refresh = useAction(async () => undefined);
-  const send = (path: string, extra: Record<string, string> = {}) => {
-    const form = new FormData();
-    form.set('file', file!);
-    if (sheet) form.set('sheet', sheet);
-    for (const [k, v] of Object.entries(extra)) form.set(k, v);
-    return api.post(path, form);
-  };
-  const run = async () => {
-    setBusy(true); setError(null); setPreview(null); setDone(null);
-    try { setPreview(await send('/import/preview')); } catch (e) { setError(e); if ((e as any)?.details?.sheets) setPreview((e as any).details); }
-    setBusy(false);
-  };
-  const isCsv = file?.name.toLowerCase().endsWith('.csv');
-  return (
-    <div className="card-body stack">
-      <p className="muted">Bring in existing buildings, floors, rooms, tenants and current contracts from Excel or CSV. The file is checked first and shown as a preview; nothing is saved until you confirm, and nothing at all is saved if any row has an error.</p>
-      <div className="row" style={{ alignItems: 'flex-end' }}>
-        <a className="btn" href={api.url('/import/template')}>Download Excel template</a>
-        <div className="field"><span className="label">File (.xlsx or .csv)</span><input ref={input} type="file" className="input" accept=".xlsx,.csv" aria-label="Import file" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setPreview(null); setDone(null); setError(null); }} /></div>
-        {isCsv && <Select label="This CSV contains" value={sheet} onChange={setSheet} all="Select…" options={['Buildings', 'Floors', 'Rooms', 'Tenants', 'Contracts'].map((s) => ({ value: s, label: s }))} />}
-        <Button variant="primary" disabled={!file || (isCsv && !sheet)} busy={busy} onClick={run}>Check file</Button>
-      </div>
-      <ErrorBox error={error} />
-      {done && <Alert tone="green">Import complete: {Object.entries(done).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', ')}.</Alert>}
-      {preview && (
-        <div className="stack">
-          {preview.totalErrors > 0 ? <Alert><strong>{preview.totalErrors} row(s) have errors.</strong> Correct the file and check it again. Nothing has been imported.</Alert>
-            : preview.totalToCreate === 0 ? <Alert tone="amber">Every row already exists. There is nothing to import.</Alert>
-              : <div className="alert green"><div className="grow"><strong>The file is valid.</strong> {preview.totalToCreate} new record(s) will be created.</div><Button variant="primary" onClick={() => setConfirm(true)}>Import {preview.totalToCreate} record(s)…</Button></div>}
-          {preview.sheets.map((s: any) => (
-            <div key={s.name}>
-              <h3 style={{ marginBottom: 6 }}>{s.name} <span className="muted small" style={{ fontWeight: 400 }}>— {s.toCreate} to create, {s.toSkip} already exist, {s.errors} with errors</span></h3>
-              <div className="table-wrap" style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: 320, overflowY: 'auto' }}>
-                <table className="table">
-                  <thead><tr><th>Row</th><th>Result</th>{Object.keys(s.rows[0]?.data ?? {}).map((k) => <th key={k}>{k}</th>)}</tr></thead>
-                  <tbody>
-                    {s.rows.map((r: any) => (
-                      <tr key={r.rowNumber} style={{ background: r.errors.length ? 'var(--red-bg)' : undefined }}>
-                        <td>{r.rowNumber}</td>
-                        <td style={{ minWidth: 220 }}>{r.errors.length ? <><Badge status="FAILED" text="Error" /><div className="small">{r.errors.join(' ')}</div></> : r.action === 'skip' ? <><Badge status="INACTIVE" text="Skip" /><div className="small muted">{r.note}</div></> : <Badge status="APPROVED" text="Will be created" />}</td>
-                        {Object.values(r.data).map((v: any, i) => <td key={i}>{v}</td>)}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      {confirm && (
-        <Confirm title="Import these records?" confirmLabel="Yes, import" onClose={() => setConfirm(false)} onConfirm={async () => {
-          const result = await send('/import/commit', { confirm: 'yes' });
-          setDone(result); setPreview(null); setFile(null);
-          if (input.current) input.current.value = '';
-          await refresh.mutateAsync(undefined as never);
-        }}>
-          {preview?.totalToCreate} record(s) will be created in one step. Imported contracts become active immediately: their rooms are marked Occupied and rent is billed from each contract’s “billFrom” month.
-        </Confirm>
-      )}
-    </div>
-  );
-}
-
 function Periods() {
   const { can, me } = useAuth();
   const q = useApi('/periods');
@@ -292,7 +218,7 @@ export function Settings() {
           );
         })()}
         {tab === 'periods' && <Periods />}
-        {tab === 'import' && <ImportData />}
+        {tab === 'import' && <ImportPanel />}
         {tab === 'integrations' && s && (
           <div className="card-body stack">
             <p className="muted">Only integrations that are really configured on the server are active. Nothing is simulated.</p>

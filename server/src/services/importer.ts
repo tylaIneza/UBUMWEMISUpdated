@@ -28,6 +28,32 @@ export const IMPORT_SHEETS = {
 export type SheetName = keyof typeof IMPORT_SHEETS;
 const SHEET_NAMES = Object.keys(IMPORT_SHEETS) as SheetName[];
 
+/** Narrower imports offered on their own pages: Rooms brings in floors and rooms, Tenants brings in tenants. */
+export const IMPORT_SCOPES = { rooms: ['Floors', 'Rooms'], tenants: ['Tenants'] } as const satisfies Record<string, readonly SheetName[]>;
+export type ImportScope = keyof typeof IMPORT_SCOPES;
+const sheetsFor = (scope?: ImportScope): readonly SheetName[] => (scope ? IMPORT_SCOPES[scope] : SHEET_NAMES);
+/**
+ * The page imports ask for the minimum; the rest is filled in on each record's page.
+ * A rooms import is for one building, chosen on screen, so it has no buildingCode column (room type defaults to Shop, deposit to 0).
+ * A tenants import needs only the name; ID, phone and the rest are added when editing the tenant.
+ */
+const SCOPE_SHEETS: Record<ImportScope, Partial<Record<SheetName, readonly string[]>>> = {
+  rooms: { Floors: ['name', 'level'], Rooms: ['floorName', 'roomNumber', 'monthlyRent'] },
+  tenants: { Tenants: ['fullName'] },
+};
+const columnsFor = (name: SheetName, scope?: ImportScope): readonly string[] => (scope && SCOPE_SHEETS[scope][name]) || IMPORT_SHEETS[name];
+type ImportBuilding = { id: string; code: string; name: string };
+
+async function buildingFor(actor: Actor, scope: ImportScope | undefined, buildingId: string | undefined): Promise<ImportBuilding | undefined> {
+  if (scope !== 'rooms') return undefined;
+  if (!buildingId) throw badRequest('Choose the building the rooms belong to.', 'IMPORT_BUILDING');
+  const building = await prisma.building.findFirst({ where: { id: buildingId, orgId: actor.orgId, status: 'ACTIVE' } });
+  if (!building) throw badRequest('That building does not exist or is not active.', 'IMPORT_BUILDING');
+  return building;
+}
+
+const WHERE: Record<ImportScope | 'all', string> = { all: 'under Settings → Import data', rooms: 'with the Import button on the Rooms page', tenants: 'with the Import button on the Tenants page' };
+
 const HELP: Record<SheetName, string> = {
   Buildings: 'code: short unique code (e.g. UBM). name: building name.',
   Floors: 'buildingCode: code from Buildings. level: number for ordering (-1 basement, 0 ground, 1 first floor …).',
@@ -52,22 +78,67 @@ export interface ImportPreview {
   canCommit: boolean;
 }
 
-export async function importTemplate(): Promise<Buffer> {
+/** Rows in each sheet that get dropdowns. */
+const LIST_ROWS = 500;
+
+export async function importTemplate(actor: Actor, scope?: ImportScope, buildingId?: string): Promise<{ buffer: Buffer; fileName: string }> {
+  const sheets = sheetsFor(scope);
+  const only = await buildingFor(actor, scope, buildingId);
+  const [buildings, floors] = await Promise.all([
+    prisma.building.findMany({ where: { orgId: actor.orgId, status: 'ACTIVE', ...(only && { id: only.id }) }, orderBy: { code: 'asc' } }),
+    prisma.floor.findMany({ where: { building: { orgId: actor.orgId, status: 'ACTIVE' }, ...(only && { buildingId: only.id }) }, include: { building: true }, orderBy: [{ building: { code: 'asc' } }, { level: 'asc' }] }),
+  ]);
+  const columns = (name: SheetName) => columnsFor(name, scope);
   const wb = new ExcelJS.Workbook();
   const guide = wb.addWorksheet('Instructions');
   guide.columns = [{ width: 16 }, { width: 110 }];
-  guide.addRow(['How to use this template']).font = { bold: true, size: 13 };
+  guide.addRow([only ? `Rooms for ${only.name}` : 'How to use this template']).font = { bold: true, size: 13 };
+  if (only) guide.addRow(['', `Every room in this file is added to ${only.name} (${only.code}). For another building, download its own template.`]);
   guide.addRow(['', 'Fill in the sheets you need, in any combination. Keep the header row exactly as it is. Do not rename the sheets.']);
-  guide.addRow(['', 'Upload the file under Settings → Import data. You will see a preview with every problem listed; nothing is saved until you confirm, and nothing is saved at all if any row has an error.']);
+  guide.addRow(['', `Upload the file ${WHERE[scope ?? 'all']}. You will see a preview with every problem listed; nothing is saved until you confirm, and nothing is saved at all if any row has an error.`]);
   guide.addRow(['', 'Rows that already exist in the system (same building code, floor, room number or tenant ID number) are skipped, never overwritten.']);
   guide.addRow([]);
-  for (const name of SHEET_NAMES) guide.addRow([name, HELP[name]]);
-  for (const name of SHEET_NAMES) {
-    const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 1 }] });
-    ws.columns = IMPORT_SHEETS[name].map((h) => ({ header: h, key: h, width: Math.max(h.length + 6, 18) }));
-    ws.getRow(1).font = { bold: true };
+  if (only) {
+    guide.addRow(['Rooms', 'floorName: pick from the list. monthlyRent in RWF, digits only. roomNumber must be unique within the building. Room type is set to Shop; change it on the room page if needed.']);
+    guide.addRow(['Floors', `Only for a floor ${only.name} does not have yet; leave empty otherwise. level: number for ordering (-1 basement, 0 ground, 1 first floor …).`]);
+    guide.addRow(['Floors now', floors.map((f) => f.name).join(', ') || 'none yet — add them on the Floors sheet']);
+  } else if (scope === 'tenants') {
+    guide.addRow(['Tenants', 'One full name per row. Add the phone, ID number and other details afterwards on each tenant’s page (Edit). A name that is already registered is skipped.']);
+  } else for (const name of sheets) guide.addRow([name, HELP[name]]);
+  if (!only && buildings.length && sheets.some((n) => (IMPORT_SHEETS[n] as readonly string[]).includes('buildingCode'))) {
+    guide.addRow([]);
+    guide.addRow(['Buildings', buildings.map((b) => `${b.code} = ${b.name}`).join('     ')]);
+    if (sheets.includes('Rooms')) guide.addRow(['Floors', buildings.map((b) => `${b.code}: ${floors.filter((f) => f.buildingId === b.id).map((f) => f.name).join(', ') || 'none yet'}`).join('     ')]);
   }
-  return Buffer.from(await wb.xlsx.writeBuffer());
+
+  const floorNames = [...new Set(floors.map((f) => f.name))];
+  const choice = (col: string, count: number, error: string, strict = true): ExcelJS.DataValidation => ({
+    type: 'list', allowBlank: true, formulae: [`Lists!$${col}$2:$${col}$${count + 1}`], showErrorMessage: true, errorStyle: strict ? 'stop' : 'warning', error,
+  });
+  const validations: Record<string, ExcelJS.DataValidation | null> = {
+    buildingCode: buildings.length ? choice('A', buildings.length, 'Choose a building code from the list.') : null,
+    // Not strict: a floor added on the Floors sheet of the same file is not in the list yet.
+    floorName: floorNames.length ? choice('B', floorNames.length, 'This floor does not exist yet. Add it on the Floors sheet, or pick one from the list.', false) : null,
+    idType: choice('C', 3, 'Choose NATIONAL_ID, PASSPORT or OTHER.'),
+  };
+
+  for (const name of sheets) {
+    const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 1 }] });
+    ws.columns = columns(name).map((h) => ({ header: h, key: h, width: Math.max(h.length + 6, 18) }));
+    ws.getRow(1).font = { bold: true };
+    columns(name).forEach((h, i) => {
+      const rule = validations[h];
+      if (!rule) return;
+      for (let r = 2; r <= LIST_ROWS + 1; r += 1) ws.getCell(r, i + 1).dataValidation = rule;
+    });
+  }
+  // Dropdown values live on a hidden sheet; the importer only reads the sheets it knows.
+  const lists = wb.addWorksheet('Lists', { state: 'veryHidden' });
+  lists.getColumn(1).values = ['buildingCode', ...buildings.map((b) => b.code)];
+  lists.getColumn(2).values = ['floorName', ...floorNames];
+  lists.getColumn(3).values = ['idType', 'NATIONAL_ID', 'PASSPORT', 'OTHER'];
+  const fileName = only ? `rooms-import-${only.code}.xlsx` : `${scope ? `${scope}-import-template` : 'rental-import-template'}.xlsx`;
+  return { buffer: Buffer.from(await wb.xlsx.writeBuffer()), fileName };
 }
 
 function cellText(value: ExcelJS.CellValue): string {
@@ -111,20 +182,24 @@ function parseCsv(text: string): string[][] {
 
 type Raw = Partial<Record<SheetName, Array<{ rowNumber: number; data: Record<string, string> }>>>;
 
-function tabulate(name: SheetName, grid: string[][]): Raw[SheetName] {
-  const expected = IMPORT_SHEETS[name] as readonly string[];
+function tabulate(name: SheetName, grid: string[][], scope?: ImportScope, building?: ImportBuilding): Raw[SheetName] {
+  const expected = columnsFor(name, scope);
   const header = (grid[0] ?? []).map((h) => h.trim());
   // idType was added later and is optional, so older files still import (it then defaults to NATIONAL_ID).
   const missing = expected.filter((h) => h !== 'idType' && !header.includes(h));
   if (missing.length) throw badRequest(`Sheet "${name}" is missing the column(s): ${missing.join(', ')}. Download the template and keep its header row.`, 'IMPORT_FORMAT');
-  return grid.slice(1).map((cells, i) => ({ rowNumber: i + 2, data: Object.fromEntries(expected.map((h) => [h, (cells[header.indexOf(h)] ?? '').trim()])) }));
+  return grid.slice(1).map((cells, i) => ({
+    rowNumber: i + 2,
+    data: { ...(building && { buildingCode: building.code }), ...Object.fromEntries(expected.map((h) => [h, (cells[header.indexOf(h)] ?? '').trim()])) },
+  }));
 }
 
-async function readFile(fileName: string, buffer: Buffer, csvSheet?: string): Promise<Raw> {
+async function readFile(fileName: string, buffer: Buffer, csvSheet?: string, scope?: ImportScope, building?: ImportBuilding): Promise<Raw> {
   const raw: Raw = {};
+  const sheets = sheetsFor(scope);
   if (/\.csv$/i.test(fileName)) {
-    if (!csvSheet || !SHEET_NAMES.includes(csvSheet as SheetName)) throw badRequest('For a CSV file, choose what it contains (Buildings, Floors, Rooms, Tenants or Contracts).', 'IMPORT_FORMAT');
-    raw[csvSheet as SheetName] = tabulate(csvSheet as SheetName, parseCsv(stripBom(buffer.toString('utf8'))));
+    if (!csvSheet || !sheets.includes(csvSheet as SheetName)) throw badRequest(`For a CSV file, choose what it contains (${sheets.join(', ')}).`, 'IMPORT_FORMAT');
+    raw[csvSheet as SheetName] = tabulate(csvSheet as SheetName, parseCsv(stripBom(buffer.toString('utf8'))), scope, building);
     return raw;
   }
   if (!/\.xlsx$/i.test(fileName) || buffer[0] !== 0x50 || buffer[1] !== 0x4b) throw badRequest('Upload an Excel (.xlsx) or CSV (.csv) file based on the template.', 'IMPORT_FORMAT');
@@ -134,7 +209,7 @@ async function readFile(fileName: string, buffer: Buffer, csvSheet?: string): Pr
   } catch {
     throw badRequest('The Excel file could not be read. Save it again as .xlsx and retry.', 'IMPORT_FORMAT');
   }
-  for (const name of SHEET_NAMES) {
+  for (const name of sheets) {
     const ws = wb.getWorksheet(name);
     if (!ws) continue;
     const grid: string[][] = [];
@@ -144,9 +219,9 @@ async function readFile(fileName: string, buffer: Buffer, csvSheet?: string): Pr
       grid.push(cells);
     });
     const body = grid.filter((r, i) => i === 0 || r.some((c) => c !== ''));
-    if (body.length > 1) raw[name] = tabulate(name, body);
+    if (body.length > 1) raw[name] = tabulate(name, body, scope, building);
   }
-  if (!Object.keys(raw).length) throw badRequest('The file contains no data rows in any of the template sheets.', 'IMPORT_EMPTY');
+  if (!Object.keys(raw).length) throw badRequest(`The file contains no data rows in the ${sheets.join(' or ')} sheet${sheets.length > 1 ? 's' : ''}.`, 'IMPORT_EMPTY');
   return raw;
 }
 
@@ -188,14 +263,14 @@ interface Plan {
   contracts: Array<{ tenantIdNumber: string; buildingCode: string; roomNumber: string; startDate: Date; endDate: Date; monthlyRent: Money | null; depositAmount: Money | null; paymentDueDay: number | null; billFrom: Date; openingBalance: Money }>;
 }
 
-async function plan(actor: Actor, raw: Raw): Promise<Plan> {
+async function plan(actor: Actor, raw: Raw, scope?: ImportScope): Promise<Plan> {
   const org = await getOrg(actor.orgId);
   const today = businessDate(org.timezone);
   const [dbBuildings, dbFloors, dbRooms, dbTenants] = await Promise.all([
     prisma.building.findMany({ where: { orgId: actor.orgId } }),
     prisma.floor.findMany({ where: { building: { orgId: actor.orgId } }, include: { building: true } }),
     prisma.room.findMany({ where: { building: { orgId: actor.orgId } }, include: { building: true } }),
-    prisma.tenant.findMany({ where: { orgId: actor.orgId }, select: { idNumber: true, status: true } }),
+    prisma.tenant.findMany({ where: { orgId: actor.orgId }, select: { fullName: true, idNumber: true, status: true } }),
   ]);
   const out: Plan = { preview: { sheets: [], totalErrors: 0, totalToCreate: 0, canCommit: false }, buildings: [], floors: [], rooms: [], tenants: [], contracts: [] };
   const sheet = (name: SheetName, rows: ImportRow[]) => out.preview.sheets.push({ name, rows, toCreate: rows.filter((r) => r.action === 'create' && !r.errors.length).length, toSkip: rows.filter((r) => r.action === 'skip').length, errors: rows.filter((r) => r.errors.length).length });
@@ -280,7 +355,24 @@ async function plan(actor: Actor, raw: Raw): Promise<Plan> {
     }));
   }
 
-  if (raw.Tenants) {
+  if (raw.Tenants && scope === 'tenants') {
+    // Name only: without an ID number the name is what tells a new tenant from one already registered.
+    const nameKey = (name: string) => lower(name).replace(/\s+/g, ' ');
+    const registered = new Set(dbTenants.map((t) => nameKey(t.fullName)));
+    const seen = new Set<string>();
+    sheet('Tenants', rows('Tenants').map(({ rowNumber, data }) => {
+      const errors: string[] = [];
+      const key = nameKey(data.fullName ?? '');
+      if (!key) errors.push('fullName is required.');
+      else if (seen.has(key)) errors.push(`"${data.fullName}" appears more than once in this file.`);
+      seen.add(key);
+      if (key && registered.has(key)) return { rowNumber, data, errors, action: 'skip' as const, note: 'A tenant with this name is already registered.' };
+      if (!errors.length) {
+        out.tenants.push({ fullName: data.fullName!.trim().replace(/\s+/g, ' '), idType: 'NATIONAL_ID', idNumber: '', phone: '', email: '', businessName: '', address: '' });
+      }
+      return { rowNumber, data, errors, action: 'create' as const };
+    }));
+  } else if (raw.Tenants) {
     const seen = new Set<string>();
     sheet('Tenants', rows('Tenants').map(({ rowNumber, data }) => {
       const errors: string[] = [];
@@ -344,12 +436,18 @@ async function plan(actor: Actor, raw: Raw): Promise<Plan> {
   return out;
 }
 
-export async function previewImport(actor: Actor, file: { fileName: string; buffer: Buffer; csvSheet?: string }): Promise<ImportPreview> {
-  return (await plan(actor, await readFile(file.fileName, file.buffer, file.csvSheet))).preview;
+interface ImportFile { fileName: string; buffer: Buffer; csvSheet?: string; scope?: ImportScope; buildingId?: string }
+
+async function read(actor: Actor, file: ImportFile): Promise<Raw> {
+  return readFile(file.fileName, file.buffer, file.csvSheet, file.scope, await buildingFor(actor, file.scope, file.buildingId));
 }
 
-export async function commitImport(actor: Actor, file: { fileName: string; buffer: Buffer; csvSheet?: string }) {
-  const p = await plan(actor, await readFile(file.fileName, file.buffer, file.csvSheet));
+export async function previewImport(actor: Actor, file: ImportFile): Promise<ImportPreview> {
+  return (await plan(actor, await read(actor, file), file.scope)).preview;
+}
+
+export async function commitImport(actor: Actor, file: ImportFile) {
+  const p = await plan(actor, await read(actor, file), file.scope);
   if (p.preview.totalErrors > 0) throw badRequest(`The file has ${p.preview.totalErrors} row(s) with errors. Nothing was imported. Fix the file and upload it again.`, 'IMPORT_HAS_ERRORS', p.preview);
   if (p.preview.totalToCreate === 0) throw badRequest('There is nothing new to import: every row already exists.', 'IMPORT_EMPTY');
   const org = await getOrg(actor.orgId);
@@ -364,7 +462,7 @@ export async function commitImport(actor: Actor, file: { fileName: string; buffe
       const room = await tx.room.create({ data: { buildingId: floor.buildingId, floorId: floor.id, number: r.number, roomType: r.roomType, monthlyRent: r.monthlyRent, depositRequired: r.depositRequired, description: r.description || null } });
       await tx.roomRentRate.create({ data: { roomId: room.id, amount: r.monthlyRent, effectiveFrom: today, reason: 'Imported', createdById: actor.userId } });
     }
-    for (const t of p.tenants) await tx.tenant.create({ data: { orgId: actor.orgId, fullName: t.fullName, idType: t.idType, idNumber: t.idNumber, phone: t.phone, email: t.email || null, businessName: t.businessName || null, address: t.address || null } });
+    for (const t of p.tenants) await tx.tenant.create({ data: { orgId: actor.orgId, fullName: t.fullName, idType: t.idType, idNumber: t.idNumber || null, phone: t.phone || null, email: t.email || null, businessName: t.businessName || null, address: t.address || null } });
     for (const c of p.contracts) {
       const tenant = await tx.tenant.findFirstOrThrow({ where: { orgId: actor.orgId, idNumber: c.tenantIdNumber } });
       const room = await tx.room.findFirstOrThrow({ where: { buildingId: buildings.get(c.buildingCode)!.id, number: c.roomNumber } });

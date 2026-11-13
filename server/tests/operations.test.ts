@@ -41,10 +41,15 @@ describe('importing existing records', () => {
     Contracts: [{ tenantIdNumber: 'IMP-0001', buildingCode: 'IMP', roomNumber: 'A1', startDate: isoDate(monthsAgo(8)), endDate: end, openingBalance: 60000 }],
   });
 
-  it('provides a template with one sheet per record type', async () => {
+  const sheetsOf = async (buffer: Buffer) => {
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load((await importTemplate()) as unknown as ArrayBuffer);
-    expect(wb.worksheets.map((s) => s.name)).toEqual(['Instructions', 'Buildings', 'Floors', 'Rooms', 'Tenants', 'Contracts']);
+    await wb.xlsx.load(buffer as unknown as ArrayBuffer);
+    return wb;
+  };
+  const visible = (wb: ExcelJS.Workbook) => wb.worksheets.filter((s) => s.state === 'visible').map((s) => s.name);
+
+  it('provides a template with one sheet per record type', async () => {
+    expect(visible(await sheetsOf((await importTemplate(w.actors.MANAGEMENT)).buffer))).toEqual(['Instructions', 'Buildings', 'Floors', 'Rooms', 'Tenants', 'Contracts']);
   });
 
   it('previews without saving and lists every problem row', async () => {
@@ -99,6 +104,52 @@ describe('importing existing records', () => {
     expect(preview.sheets[0]!.rows[0]!.data).toMatchObject({ fullName: 'Csv, Tenant', address: 'Kigali, Rwanda' });
     expect(preview.canCommit).toBe(true);
     expect((await failure(previewImport(w.actors.MANAGEMENT, { fileName: 'x.pdf', buffer: Buffer.from('%PDF-') }))).code).toBe('IMPORT_FORMAT');
+  });
+
+  it('imports rooms into the chosen building with only floor, room number and rent', async () => {
+    expect((await failure(importTemplate(w.actors.MANAGEMENT, 'rooms'))).code).toBe('IMPORT_BUILDING');
+    const template = await importTemplate(w.actors.MANAGEMENT, 'rooms', b.id);
+    expect(template.fileName).toBe('rooms-import-OP.xlsx');
+    const wb = await sheetsOf(template.buffer);
+    expect(visible(wb)).toEqual(['Instructions', 'Floors', 'Rooms']);
+    expect(wb.getWorksheet('Rooms')!.getRow(1).values).toEqual([undefined, 'floorName', 'roomNumber', 'monthlyRent']);
+    expect(wb.getWorksheet('Floors')!.getRow(1).values).toEqual([undefined, 'name', 'level']);
+
+    // Filled in from row 2, as a person would; the template's rows already carry dropdowns.
+    wb.getWorksheet('Floors')!.getRow(2).values = ['Rooftop', 9];
+    const rooms = wb.getWorksheet('Rooms')!;
+    rooms.getRow(2).values = ['Floor 0', 'R-NEW-1', 250000];
+    rooms.getRow(3).values = ['Rooftop', 'R-NEW-2', '300,000'];
+    rooms.getRow(4).values = ['Nowhere', 'R-NEW-3', 1];
+    const bad = { fileName: 'rooms.xlsx', buffer: Buffer.from(await wb.xlsx.writeBuffer()), scope: 'rooms' as const, buildingId: b.id };
+    const errors = (await previewImport(w.actors.MANAGEMENT, bad)).sheets.flatMap((s) => s.rows.flatMap((r) => r.errors));
+    expect(errors).toEqual([expect.stringMatching(/Floor "Nowhere" does not exist in building OP/)]);
+
+    rooms.getRow(4).values = [];
+    const file = { ...bad, buffer: Buffer.from(await wb.xlsx.writeBuffer()) };
+    expect(await commitImport(w.actors.MANAGEMENT, file)).toEqual({ buildings: 0, floors: 1, rooms: 2, tenants: 0, contracts: 0 });
+    const created = await prisma.room.findMany({ where: { buildingId: b.id, number: { startsWith: 'R-NEW' } }, include: { floor: true }, orderBy: { number: 'asc' } });
+    expect(created.map((r) => [r.number, r.floor.name, num(r.monthlyRent), r.roomType])).toEqual([['R-NEW-1', 'Floor 0', 250000, 'Shop'], ['R-NEW-2', 'Rooftop', 300000, 'Shop']]);
+  });
+
+  it('imports tenants from the Tenants page by full name only', async () => {
+    const template = await importTemplate(w.actors.MANAGEMENT, 'tenants');
+    const wb = await sheetsOf(template.buffer);
+    expect(visible(wb)).toEqual(['Instructions', 'Tenants']);
+    expect(wb.getWorksheet('Tenants')!.getRow(1).values).toEqual([undefined, 'fullName']);
+    const ws = wb.getWorksheet('Tenants')!;
+    ['Name Only One', 'Name  Only Two', 'name only one', 'Imported Tenant'].forEach((n, i) => { ws.getRow(i + 2).values = [n]; });
+    const file = { fileName: 'tenants.xlsx', buffer: Buffer.from(await wb.xlsx.writeBuffer()), scope: 'tenants' as const };
+    const rows = (await previewImport(w.actors.MANAGEMENT, file)).sheets[0]!.rows;
+    expect(rows.map((r) => [r.action, r.errors.length])).toEqual([['create', 0], ['create', 0], ['create', 1], ['skip', 0]]);
+
+    ws.getRow(4).values = [];
+    const fixed = { ...file, buffer: Buffer.from(await wb.xlsx.writeBuffer()) };
+    expect(await commitImport(w.actors.MANAGEMENT, fixed)).toEqual({ buildings: 0, floors: 0, rooms: 0, tenants: 2, contracts: 0 });
+    const created = await prisma.tenant.findMany({ where: { orgId: w.orgId, fullName: { startsWith: 'Name Only' } }, orderBy: { fullName: 'asc' } });
+    expect(created.map((t) => [t.fullName, t.idNumber, t.phone])).toEqual([['Name Only One', null, null], ['Name Only Two', null, null]]);
+    // A CSV on the Tenants page can only be a tenants list.
+    expect((await failure(previewImport(w.actors.MANAGEMENT, { fileName: 't.csv', buffer: Buffer.from('a\n1'), csvSheet: 'Contracts', scope: 'tenants' }))).code).toBe('IMPORT_FORMAT');
   });
 });
 

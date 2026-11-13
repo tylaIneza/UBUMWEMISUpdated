@@ -2,9 +2,9 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { type ButtonHTMLAttributes, type MouseEvent, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, errorMessage, type Query } from './api';
-import { useAuth } from './auth';
+import { useAuth, useMeta } from './auth';
 import { date, dateTime, fileSize, label, money, month } from './format';
-import { Badge, Button, Empty, ErrorBox, Loading, Pager, Select, Table, useToast } from './ui';
+import { Alert, Badge, Button, Confirm, Empty, ErrorBox, Loading, Pager, Select, Table, useToast } from './ui';
 
 /** GET a resource; the query key includes the parameters so filters and pages cache separately. */
 export function useApi<T = any>(path: string, params?: Query, enabled = true) {
@@ -215,4 +215,97 @@ export function TimelinePanel({ entityType, entityId }: { entityType: string; en
 
 export function errText(e: unknown) {
   return errorMessage(e);
+}
+
+type ImportScope = 'rooms' | 'tenants';
+const IMPORT_SHEETS: Record<ImportScope | 'all', string[]> = { all: ['Buildings', 'Floors', 'Rooms', 'Tenants', 'Contracts'], rooms: ['Floors', 'Rooms'], tenants: ['Tenants'] };
+const IMPORT_INTRO: Record<ImportScope | 'all', string> = {
+  all: 'Bring in existing buildings, floors, rooms, tenants and current contracts from Excel or CSV.',
+  rooms: 'Choose the building, download its template and fill in each room’s floor, room number and monthly rent. A floor the building does not have yet can be added on the template’s Floors sheet.',
+  tenants: 'Download the template and write one tenant’s full name per row. Add the phone, ID number and other details afterwards on each tenant’s page (Edit), and give them a room there.',
+};
+
+/** Excel / CSV import: check the file, show every row with its problems, then import in one step. Without a scope it accepts every record type. */
+export function ImportPanel({ scope }: { scope?: ImportScope }) {
+  const { buildingId: current } = useAuth();
+  const meta = useMeta();
+  const buildings = (meta.data?.buildings ?? []).filter((b: any) => b.status === 'ACTIVE');
+  // A rooms import goes into one building, chosen here; the file then needs no building column.
+  const perBuilding = scope === 'rooms';
+  const [buildingId, setBuildingId] = useState(perBuilding ? current ?? '' : '');
+  const building = buildings.find((b: any) => b.id === buildingId);
+  const input = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [sheet, setSheet] = useState('');
+  const [preview, setPreview] = useState<any>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [done, setDone] = useState<any>(null);
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const refresh = useAction(async () => undefined);
+  const send = (path: string, extra: Record<string, string> = {}) => {
+    const form = new FormData();
+    form.set('file', file!);
+    if (sheet) form.set('sheet', sheet);
+    if (scope) form.set('for', scope);
+    if (perBuilding) form.set('buildingId', buildingId);
+    for (const [k, v] of Object.entries(extra)) form.set(k, v);
+    return api.post(path, form);
+  };
+  const run = async () => {
+    setBusy(true); setError(null); setPreview(null); setDone(null);
+    try { setPreview(await send('/import/preview')); } catch (e) { setError(e); if ((e as any)?.details?.sheets) setPreview((e as any).details); }
+    setBusy(false);
+  };
+  const isCsv = file?.name.toLowerCase().endsWith('.csv');
+  return (
+    <div className="card-body stack">
+      <p className="muted">{IMPORT_INTRO[scope ?? 'all']} The file is checked first and shown as a preview; nothing is saved until you confirm, and nothing at all is saved if any row has an error.</p>
+      <div className="row" style={{ alignItems: 'flex-end' }}>
+        {perBuilding && <Select label="Building" value={buildingId} onChange={(v) => { setBuildingId(v); setPreview(null); setDone(null); setError(null); }} all="Select…" options={buildings.map((b: any) => ({ value: b.id, label: b.name }))} />}
+        {perBuilding && !building ? <Button disabled>Download Excel template</Button> : <a className="btn" href={api.url('/import/template', { for: scope, buildingId: building?.id })}>Download Excel template</a>}
+        <div className="field"><span className="label">File (.xlsx or .csv)</span><input ref={input} type="file" className="input" accept=".xlsx,.csv" aria-label="Import file" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setPreview(null); setDone(null); setError(null); }} /></div>
+        {isCsv && <Select label="This CSV contains" value={sheet} onChange={setSheet} all="Select…" options={IMPORT_SHEETS[scope ?? 'all'].map((s) => ({ value: s, label: s }))} />}
+        <Button variant="primary" disabled={!file || (isCsv && !sheet) || (perBuilding && !building)} busy={busy} onClick={run}>Check file</Button>
+      </div>
+      <ErrorBox error={error} />
+      {done && <Alert tone="green">Import complete: {Object.entries(done).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', ')}.</Alert>}
+      {preview && (
+        <div className="stack">
+          {preview.totalErrors > 0 ? <Alert><strong>{preview.totalErrors} row(s) have errors.</strong> Correct the file and check it again. Nothing has been imported.</Alert>
+            : preview.totalToCreate === 0 ? <Alert tone="amber">Every row already exists. There is nothing to import.</Alert>
+              : <div className="alert green"><div className="grow"><strong>The file is valid.</strong> {preview.totalToCreate} new record(s) will be created.</div><Button variant="primary" onClick={() => setConfirm(true)}>Import {preview.totalToCreate} record(s)…</Button></div>}
+          {preview.sheets.map((s: any) => (
+            <div key={s.name}>
+              <h3 style={{ marginBottom: 6 }}>{s.name} <span className="muted small" style={{ fontWeight: 400 }}>— {s.toCreate} to create, {s.toSkip} already exist, {s.errors} with errors</span></h3>
+              <div className="table-wrap" style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: 320, overflowY: 'auto' }}>
+                <table className="table">
+                  <thead><tr><th>Row</th><th>Result</th>{Object.keys(s.rows[0]?.data ?? {}).map((k) => <th key={k}>{k}</th>)}</tr></thead>
+                  <tbody>
+                    {s.rows.map((r: any) => (
+                      <tr key={r.rowNumber} style={{ background: r.errors.length ? 'var(--red-bg)' : undefined }}>
+                        <td>{r.rowNumber}</td>
+                        <td style={{ minWidth: 220 }}>{r.errors.length ? <><Badge status="FAILED" text="Error" /><div className="small">{r.errors.join(' ')}</div></> : r.action === 'skip' ? <><Badge status="INACTIVE" text="Skip" /><div className="small muted">{r.note}</div></> : <Badge status="APPROVED" text="Will be created" />}</td>
+                        {Object.values(r.data).map((v: any, i) => <td key={i}>{v}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {confirm && (
+        <Confirm title="Import these records?" confirmLabel="Yes, import" onClose={() => setConfirm(false)} onConfirm={async () => {
+          const result = await send('/import/commit', { confirm: 'yes' });
+          setDone(result); setPreview(null); setFile(null);
+          if (input.current) input.current.value = '';
+          await refresh.mutateAsync(undefined as never);
+        }}>
+          {preview?.totalToCreate} record(s) will be created in one step{building ? ` in ${building.name}` : ''}.{!scope && ' Imported contracts become active immediately: their rooms are marked Occupied and rent is billed from each contract’s “billFrom” month.'}
+        </Confirm>
+      )}
+    </div>
+  );
 }
