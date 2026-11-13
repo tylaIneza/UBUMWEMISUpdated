@@ -162,7 +162,7 @@ export function Table<T>({ columns, rows, onRow, empty, foot, rowKey }: { column
   const cls = (c: Column<T>) => `${c.num ? 'num' : ''} ${c.hideSm ? 'hide-sm' : ''}`;
   return (
     <div className="table-wrap">
-      <table className="table">
+      <table className="table cards">
         <thead>
           <tr>{columns.map((c) => <th key={c.header} scope="col" className={cls(c)}>{c.header}</th>)}</tr>
         </thead>
@@ -170,7 +170,8 @@ export function Table<T>({ columns, rows, onRow, empty, foot, rowKey }: { column
           {rows.map((row, i) => (
             <tr key={rowKey ? rowKey(row, i) : ((row as { id?: string }).id ?? i)} className={onRow ? 'click' : ''} onClick={onRow ? () => onRow(row) : undefined}
               tabIndex={onRow ? 0 : undefined} onKeyDown={onRow ? (e) => { if (e.key === 'Enter') onRow(row); } : undefined}>
-              {columns.map((c) => <td key={c.header} className={cls(c)}>{c.cell(row)}</td>)}
+              {/* data-label: on phones each row becomes a card that labels its values with the column names */}
+              {columns.map((c) => <td key={c.header} className={cls(c)} data-label={c.header}><span className="cell">{c.cell(row)}</span></td>)}
             </tr>
           ))}
         </tbody>

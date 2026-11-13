@@ -25,6 +25,7 @@ const PATHS = {
   trend: 'M3 17l6-6 4 4 8-8 M15 7h6v6',
   logout: 'M10 4H5v16h5 M15 8l4 4-4 4 M19 12H9',
   half: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 3v18',
+  sidebar: 'M4 4h16v16H4z M9.5 4v16 M6.5 8h.5 M6.5 11h.5',
   key: 'M14 10a4 4 0 1 0-3.5 4L7 17.5V20h3v-2h2v-2h1.5l1-1A4 4 0 0 0 14 10z M16.5 7.5h.01',
 } as const;
 

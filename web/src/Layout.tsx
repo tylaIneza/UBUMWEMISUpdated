@@ -61,6 +61,9 @@ export function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [menu, setMenu] = useState(false);
+  // Computers: the sidebar can shrink to icons only; the choice is remembered on this device.
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('sidebar-collapsed') === '1'; } catch { return false; } });
+  const toggleSidebar = () => setCollapsed((c) => { try { localStorage.setItem('sidebar-collapsed', c ? '0' : '1'); } catch { /* storage unavailable */ } return !c; });
   const { install } = useInstallApp();
   const [logo, setLogo] = useState(true);
   useEffect(() => setMenu(false), [location.pathname]);
@@ -107,10 +110,10 @@ export function Layout() {
   };
 
   return (
-    <div className="shell">
+    <div className={`shell ${collapsed ? 'collapsed' : ''}`}>
       <aside className={`sidebar no-print ${menu ? 'open' : ''}`} aria-label="Main navigation">
         <div className="brand">
-          <div className="brand-mark">{logo && <img src="/brand/logo.png" alt="" onError={() => setLogo(false)} />}<span><b>UBUMWE</b>HOUSE</span></div>
+          <div className="brand-mark">{logo && <img src="/brand/logo.png" alt="" onError={() => setLogo(false)} />}<span><b>UBUMWE</b>HOUSE</span>{!logo && <span className="brand-mono" aria-hidden="true">UH</span>}</div>
           <small>Shops • Offices • Your Business Home</small>
         </div>
         <nav className="nav">
@@ -121,7 +124,7 @@ export function Layout() {
               <div key={group}>
                 <div className="nav-group">{group}</div>
                 {visible.map((i) => (
-                  <NavLink key={i.to} to={i.to} end={i.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>
+                  <NavLink key={i.to} to={i.to} end={i.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')} title={collapsed ? i.text : undefined}>
                     <span className="nav-label"><I name={i.icon} />{i.text}</span>
                     {Boolean(i.count) && <span className="count" aria-label={`${i.count} waiting`}>{i.count}</span>}
                   </NavLink>
@@ -141,6 +144,7 @@ export function Layout() {
         {me.organization.isDemo && <div className="demo-banner screen" role="note">DEMO DATA — sample records for demonstration and training. Not real business data.</div>}
         <header className="topbar no-print">
           <Button className="menu-btn" onClick={() => setMenu(!menu)} aria-label="Open menu" aria-expanded={menu}>☰</Button>
+          <button type="button" className="icon-btn collapse-btn" onClick={toggleSidebar} aria-label={collapsed ? 'Show the full menu' : 'Shrink the menu to icons'} aria-pressed={collapsed} title={collapsed ? 'Show menu' : 'Hide menu'}><I name="sidebar" /></button>
           <label className="sr-only" htmlFor="building-filter">Property filter</label>
           <select id="building-filter" className="input" style={{ width: 'auto', maxWidth: 220, fontWeight: 600 }} value={buildingId} onChange={(e) => setBuildingId(e.target.value)} title="Property filter: applies to dashboards, lists and reports">
             <option value="">ALL BUILDINGS</option>
