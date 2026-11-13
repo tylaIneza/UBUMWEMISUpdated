@@ -16,6 +16,7 @@ import * as rbac from '../services/rbac.js';
 import { dailyOperations, dashboard, reconcile } from '../services/reports.js';
 import { globalSearch } from '../services/search.js';
 import * as settings from '../services/settings.js';
+import { lookupByTin } from '../services/tenantLookup.js';
 import { listAudit, timeline } from '../services/timeline.js';
 import * as users from '../services/users.js';
 import { businessDate, endOfMonth, startOfMonth } from '../lib/dates.js';
@@ -27,6 +28,19 @@ const disabled = config.DISABLE_RATE_LIMIT === 'true';
 const authLimiter = rateLimit({
   windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false, skip: () => disabled,
   message: { error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please wait a few minutes and try again.' } },
+});
+
+/** Public balance check by TIN: few tries per device, so TIN numbers cannot be run through to find tenants. */
+const tinLookupLimiter = rateLimit({
+  windowMs: 15 * 60_000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false, skip: () => disabled,
+  message: { error: { code: 'RATE_LIMITED', message: 'Too many checks from this device. Please wait 15 minutes and try again.' } },
+});
+
+// ───────────── Tenant balance check (public, on the sign-in page) ─────────────
+
+coreRouter.post('/public/tenant-balance', tinLookupLimiter, async (req, res) => {
+  const body = z.object({ tin: z.string().trim().max(40) }).parse(req.body);
+  res.json({ results: await lookupByTin(body.tin, clientInfo(req)) });
 });
 
 // ───────────── Authentication ─────────────

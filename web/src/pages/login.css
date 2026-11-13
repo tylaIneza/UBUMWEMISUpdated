@@ -75,6 +75,53 @@
 .ax-alert { display: flex; gap: 10px; align-items: flex-start; padding: 11px 13px; border-radius: 12px; font-size: 13.5px; line-height: 1.45; color: #8f1d1d; background: #fdecec; border: 1px solid #f5c6c6; animation: ax-rise .22s ease-out both; }
 .ax-alert svg { flex-shrink: 0; margin-top: 1px; } .ax-alert.ok { color: #0c6b57; background: #e4f8f2; border-color: #aee6d7; }
 
+/* ── Tenant balance check (under the sign-in card) and its report ── */
+.ax-card.ax-balance { padding: 22px 26px; }
+.ax-balance > .ax-form h2 { margin: 0; font-size: 17px; font-weight: 750; color: var(--ink); }
+.ax-balance > .ax-form .ax-sub { font-size: 13.5px; margin-top: 4px; }
+.ax-balance > .ax-form { gap: 12px; }
+.ax-balance-row { display: flex; gap: 10px; align-items: flex-start; } .ax-balance-row .ax-field { flex: 1; min-width: 0; }
+.ax-cta.ax-cta-alt { width: auto; min-width: 104px; height: 56px; padding: 0 20px; background: linear-gradient(135deg, #17b897 0%, #0f8f75 100%); box-shadow: 0 10px 22px -10px rgba(23, 184, 151, .7); }
+.ax-cta.ax-cta-alt:hover:not(:disabled) { box-shadow: 0 14px 28px -10px rgba(23, 184, 151, .8); }
+
+.ax-report { width: min(720px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); padding: 0; border: 0; border-radius: 22px; overflow: auto; color: var(--ink); background: #fff;
+  font-family: inherit; box-shadow: 0 40px 90px -20px rgba(0, 0, 0, .6); }
+.ax-report::backdrop { background: rgba(5, 13, 28, .62); backdrop-filter: blur(4px); }
+.ax-report-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 24px 26px 18px; color: #fff;
+  background: linear-gradient(135deg, var(--navy-2) 0%, #17408f 100%); }
+.ax-report-head h2 { margin: 2px 0 0; font-size: 22px; font-weight: 750; } .ax-report-head .ax-sub { color: #c9dbff; margin-top: 2px; }
+.ax-report-kicker { margin: 0; font-size: 12px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: #9fbcff; }
+.ax-report-body .ax-report-kicker { color: var(--blue-2); margin-bottom: 10px; }
+.ax-report-close { flex-shrink: 0; width: 38px; height: 38px; border: 0; border-radius: 10px; background: rgba(255, 255, 255, .14); color: #fff; font-size: 16px; cursor: pointer; }
+.ax-report-close:hover { background: rgba(255, 255, 255, .24); } .ax-report-close:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.ax-report-body { padding: 20px 26px 4px; } .ax-report-body + .ax-report-body { border-top: 1px solid var(--line); }
+.ax-report-body h3 { margin: 20px 0 8px; font-size: 13px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); }
+.ax-report-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ax-stat { display: flex; flex-direction: column; gap: 3px; padding: 14px 16px; border-radius: 14px; background: #f3f6fc; border: 1px solid var(--line); }
+.ax-stat span { font-size: 12.5px; font-weight: 650; color: var(--ink-2); } .ax-stat b { font-size: 21px; font-weight: 800; letter-spacing: -.01em; } .ax-stat small { font-size: 12.5px; color: var(--ink-2); }
+.ax-stat.owing { background: #fff4e5; border-color: #f6d6a8; } .ax-stat.owing b { color: #b45309; }
+.ax-stat.clear { background: #e4f8f2; border-color: #aee6d7; } .ax-stat.clear b { color: #0c6b57; }
+.ax-report-rooms { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ax-report-rooms li { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); font-size: 14px; }
+.ax-report-rooms li span { color: var(--ink-2); font-size: 13px; } .ax-report-rooms li span:last-child { margin-left: auto; color: var(--ink); font-weight: 600; }
+.ax-report-table { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.ax-report-table table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.ax-report-table th, .ax-report-table td { padding: 10px 12px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
+.ax-report-table th { font-size: 12px; font-weight: 650; color: var(--ink-2); background: #f7f9fd; }
+.ax-report-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.ax-report-table tfoot td { border-bottom: 0; background: #f7f9fd; font-weight: 650; }
+.ax-late { margin-left: 8px; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-style: normal; font-weight: 700; color: #b42318; background: #fdecec; }
+.ax-report-contacts { padding: 16px 26px 22px; display: grid; gap: 10px; }
+.ax-report-contacts ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ax .ax-report-contacts a { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: #f7f9fd; color: var(--ink); font-weight: 500; text-align: center; }
+.ax .ax-report-contacts a:hover { text-decoration: none; border-color: var(--blue); background: #eef3ff; }
+.ax-report-contacts a span { font-size: 12px; color: var(--ink-2); } .ax-report-contacts a b { font-size: 14.5px; color: var(--blue-2); font-variant-numeric: tabular-nums; }
+@media (max-width: 560px) {
+  .ax-report-head, .ax-report-body { padding-left: 16px; padding-right: 16px; } .ax-report-contacts { padding: 14px 16px 18px; } .ax-report-contacts ul { grid-template-columns: minmax(0, 1fr); }
+  .ax-report-stats { grid-template-columns: minmax(0, 1fr); } .ax-card.ax-balance { padding: 20px 16px; }
+  .ax-report-table .wide { display: none; } /* phones: month, room and unpaid amount only */
+}
+
 /* ── OTP ── */
 .ax-steps { list-style: none; margin: 0 0 4px; padding: 0; display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
 .ax-steps li { display: flex; align-items: center; gap: 8px; white-space: nowrap; } .ax-steps .ax-line { flex: 1; height: 2px; min-width: 16px; border-radius: 2px; background: linear-gradient(90deg, var(--teal), var(--blue)); }
@@ -131,7 +178,7 @@
 
 /* ── Tablet and phone: one column, the building becomes a compact banner ── */
 @media (max-width: 920px) {
-  .ax { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; background: var(--navy); }
+  .ax { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; background: var(--navy); overflow-x: clip; }
   .ax-brand { padding: 22px 22px 54px; gap: 14px; }
   .ax-visual { min-height: 0; height: 132px; flex: none; border-radius: 20px 20px 56px 20px; }
   .ax-visual img { object-position: 62% 14%; } /* the short banner shows the building's sign */

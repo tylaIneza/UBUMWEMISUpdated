@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type For
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { api, ApiError, errorMessage } from '../api';
 import { useAuth } from '../auth';
+import { dateTime, date as fmtDate, money, month } from '../format';
 import './login.css';
 
 /**
@@ -37,6 +38,7 @@ const ICONS = {
   arrow: 'M5 12h14 M13 6l6 6-6 6',
   check: 'M5 12.5l4.5 4.5L19 7.5',
   alert: 'M12 8v5 M12 16.5v.01 M12 3l9.5 17H2.5z',
+  receipt: 'M6 3h12v18l-3-2-3 2-3-2-3 2z M9 8h6 M9 12h6',
 };
 
 function Brand({ compact }: { compact?: boolean }) {
@@ -88,6 +90,7 @@ function LoginStep({ notice, onOtp, onDone }: { notice: string; onOtp: (c: Chall
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
+  // Empty fields are flagged on submit, not on blur: leaving one (e.g. for the balance check below) is not a mistake.
   const [touched, setTouched] = useState({ email: false, password: false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(notice);
@@ -124,13 +127,13 @@ function LoginStep({ notice, onOtp, onDone }: { notice: string; onOtp: (c: Chall
       <div className="ax-rise" style={{ animationDelay: '100ms' }}>
         <Field id="ax-email" label="E-mail or phone number" icon={ICONS.mail} error={emailError}>
           <input id="ax-email" type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder=" " value={email} autoFocus
-            onChange={(e) => setEmail(e.target.value)} onBlur={() => setTouched((t) => ({ ...t, email: true }))} aria-invalid={Boolean(emailError)} aria-describedby={emailError ? 'ax-email-error' : undefined} />
+            onChange={(e) => setEmail(e.target.value)} onBlur={() => email && setTouched((t) => ({ ...t, email: true }))} aria-invalid={Boolean(emailError)} aria-describedby={emailError ? 'ax-email-error' : undefined} />
         </Field>
       </div>
       <div className="ax-rise" style={{ animationDelay: '150ms' }}>
         <Field id="ax-password" label="Password" icon={ICONS.lock} error={passwordError}>
           <input id="ax-password" type={show ? 'text' : 'password'} autoComplete="current-password" placeholder=" " value={password}
-            onChange={(e) => setPassword(e.target.value)} onBlur={() => setTouched((t) => ({ ...t, password: true }))} aria-invalid={Boolean(passwordError)} aria-describedby={passwordError ? 'ax-password-error' : undefined} />
+            onChange={(e) => setPassword(e.target.value)} onBlur={() => password && setTouched((t) => ({ ...t, password: true }))} aria-invalid={Boolean(passwordError)} aria-describedby={passwordError ? 'ax-password-error' : undefined} />
           <button type="button" className="ax-eye" onClick={() => setShow(!show)} aria-label={show ? 'Hide password' : 'Show password'} aria-pressed={show}>
             <span key={String(show)} className="ax-eye-icon"><Icon d={show ? ICONS.eyeOff : ICONS.eye} /></span>
           </button>
@@ -309,6 +312,127 @@ function SuccessStep({ verified }: { verified: boolean }) {
   );
 }
 
+// ───────────── Tenant balance check (no sign-in) ─────────────
+
+interface BalanceResult {
+  organization: string; currency: string; today: string;
+  tenant: { fullName: string; businessName: string | null };
+  rooms: Array<{ room: string; floor: string; building: string; monthlyRent: string }>;
+  unpaid: Array<{ period: string; room: string; building: string; dueDate: string; amountDue: string; amountPaid: string; balance: string; overdue: boolean }>;
+  outstanding: string;
+  lastPayment: { date: string; amount: string; room: string; building: string; method: string } | null;
+}
+
+/** Who a tenant can call about their statement. */
+const STATEMENT_CONTACTS = [
+  { name: 'Gad', role: 'Accountant', phone: '0788705182' },
+  { name: 'Paccy', role: 'Building Manager', phone: '0788628417' },
+  { name: 'Office', role: 'Office number', phone: '0790009813' },
+];
+const telHref = (local: string) => `tel:+250${local.slice(1)}`;
+const spaced = (local: string) => local.replace(/^(\d{4})(\d{3})(\d{3})$/, '$1 $2 $3');
+
+/** A tenant types their TIN and sees their unpaid months and last payment, without an account. */
+function BalanceCheck() {
+  const [tin, setTin] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState<BalanceResult[] | null>(null);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const digits = tin.replace(/[\s\-./]/g, '');
+    if (!/^\d{9}$/.test(digits)) { setError('Enter the 9-digit TIN number from your RDB certificate.'); return; }
+    setBusy(true); setError('');
+    try { setResults((await api.post<{ results: BalanceResult[] }>('/public/tenant-balance', { tin: digits })).results); }
+    catch (err) { setError(errorMessage(err)); }
+    setBusy(false);
+  };
+  return (
+    <section className="ax-card ax-balance" aria-labelledby="ax-balance-title">
+      <form className="ax-form" onSubmit={submit} noValidate>
+        <div>
+          <h2 id="ax-balance-title">Tenant? Check your balance</h2>
+          <p className="ax-sub">Enter your TIN number to see your unpaid months and last payment. No account needed.</p>
+        </div>
+        <div className="ax-balance-row">
+          <Field id="ax-tin" label="TIN number" icon={ICONS.receipt} error={error || undefined}>
+            <input id="ax-tin" inputMode="numeric" autoComplete="off" maxLength={14} placeholder=" " value={tin} onChange={(e) => { setTin(e.target.value); setError(''); }} aria-invalid={!!error} aria-describedby={error ? 'ax-tin-error' : undefined} />
+          </Field>
+          <button type="submit" className="ax-cta ax-cta-alt" disabled={busy} aria-busy={busy}>{busy ? <Spinner /> : 'Check'}</button>
+        </div>
+      </form>
+      {results && <BalanceReport results={results} onClose={() => setResults(null)} />}
+    </section>
+  );
+}
+
+function BalanceReport({ results, onClose }: { results: BalanceResult[]; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const d = ref.current;
+    if (d && !d.open) d.showModal();
+    return () => d?.close();
+  }, []);
+  return (
+    <dialog ref={ref} className="ax-report" onCancel={(e) => { e.preventDefault(); onClose(); }} aria-labelledby="ax-report-title">
+      <div className="ax-report-head">
+        <div>
+          <p className="ax-report-kicker">Rent statement · {fmtDate(results[0]!.today)}</p>
+          <h2 id="ax-report-title">{results[0]!.tenant.fullName}</h2>
+          {results[0]!.tenant.businessName && <p className="ax-sub">{results[0]!.tenant.businessName}</p>}
+        </div>
+        <button type="button" className="ax-report-close" onClick={onClose} aria-label="Close">✕</button>
+      </div>
+      {results.map((r, i) => (
+        <div key={i} className="ax-report-body">
+          {results.length > 1 && <p className="ax-report-kicker">{r.organization}</p>}
+          <div className="ax-report-stats">
+            <div className={`ax-stat ${Number(r.outstanding) > 0 ? 'owing' : 'clear'}`}>
+              <span>Outstanding</span><b>{money(r.outstanding, r.currency)}</b>
+              <small>{r.unpaid.length ? `${r.unpaid.length} unpaid month${r.unpaid.length > 1 ? 's' : ''}` : 'Nothing unpaid — thank you!'}</small>
+            </div>
+            <div className="ax-stat">
+              <span>Last payment</span>
+              {r.lastPayment ? <><b>{money(r.lastPayment.amount, r.currency)}</b><small>{dateTime(r.lastPayment.date)} · Room {r.lastPayment.room} · {r.lastPayment.method}</small></> : <><b>—</b><small>No payment recorded yet</small></>}
+            </div>
+          </div>
+          <h3>Room{r.rooms.length === 1 ? '' : 's'}</h3>
+          {r.rooms.length ? (
+            <ul className="ax-report-rooms">
+              {r.rooms.map((room, j) => <li key={j}><b>Room {room.room}</b><span>{room.building} · {room.floor}</span><span>{money(room.monthlyRent, r.currency)} / month</span></li>)}
+            </ul>
+          ) : <p className="ax-sub">No current room.</p>}
+          <h3>Unpaid months</h3>
+          {r.unpaid.length ? (
+            <div className="ax-report-table">
+              <table>
+                <thead><tr><th>Month</th><th>Room</th><th className="wide">Due date</th><th className="num wide">Rent</th><th className="num wide">Paid</th><th className="num">Unpaid</th></tr></thead>
+                <tbody>
+                  {r.unpaid.map((c, j) => (
+                    <tr key={j}>
+                      <td>{month(c.period)}{c.overdue && <em className="ax-late">Late</em>}</td><td>{c.room}</td><td className="wide">{fmtDate(c.dueDate)}</td>
+                      <td className="num wide">{money(c.amountDue, r.currency)}</td><td className="num wide">{money(c.amountPaid, r.currency)}</td><td className="num"><b>{money(c.balance, r.currency)}</b></td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot><tr><td colSpan={2}>Total outstanding</td><td className="wide" colSpan={3} /><td className="num"><b>{money(r.outstanding, r.currency)}</b></td></tr></tfoot>
+              </table>
+            </div>
+          ) : <p className="ax-sub">You have no unpaid months.</p>}
+        </div>
+      ))}
+      <div className="ax-report-contacts">
+        <p className="ax-fine">Questions about this statement? Please contact the {results[0]!.organization} office. For more information:</p>
+        <ul>
+          {STATEMENT_CONTACTS.map((c) => (
+            <li key={c.phone}><a href={telHref(c.phone)}><span>{c.name === 'Office' ? c.role : `${c.name} · ${c.role}`}</span><b>{spaced(c.phone)}</b></a></li>
+          ))}
+        </ul>
+      </div>
+    </dialog>
+  );
+}
+
 export function Login() {
   const { me, refresh } = useAuth();
   const navigate = useNavigate();
@@ -351,6 +475,7 @@ export function Login() {
             {step === 'success' && <SuccessStep verified={verified} />}
           </div>
         </div>
+        {step === 'login' && <BalanceCheck />}
         <p className="ax-foot">© {new Date().getFullYear()} UBUMWE HOUSE · Secure sign-in</p>
       </main>
     </div>
