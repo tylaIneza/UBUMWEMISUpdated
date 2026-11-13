@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { api, ApiError, errorMessage } from '../api';
 import { useAuth } from '../auth';
 import { dateTime, date as fmtDate, money, month } from '../format';
+import { devicePlatform, isInstalledApp, useInstallApp } from '../pwa';
 import './login.css';
 
 /**
@@ -39,6 +40,9 @@ const ICONS = {
   check: 'M5 12.5l4.5 4.5L19 7.5',
   alert: 'M12 8v5 M12 16.5v.01 M12 3l9.5 17H2.5z',
   receipt: 'M6 3h12v18l-3-2-3 2-3-2-3 2z M9 8h6 M9 12h6',
+  phone: 'M8 2.5h8a1.5 1.5 0 0 1 1.5 1.5v16a1.5 1.5 0 0 1-1.5 1.5H8A1.5 1.5 0 0 1 6.5 20V4A1.5 1.5 0 0 1 8 2.5z M11 18.5h2',
+  share: 'M12 15V3 M8 7l4-4 4 4 M6 11H5v10h14V11h-1',
+  plus: 'M5 4h14v16H5z M12 8.5v7 M8.5 12h7',
 };
 
 function Brand({ compact }: { compact?: boolean }) {
@@ -312,6 +316,64 @@ function SuccessStep({ verified }: { verified: boolean }) {
   );
 }
 
+// ───────────── Install as an app (iPhone, Android, computer) ─────────────
+
+/**
+ * "Install the app" on the sign-in page. Where the browser offers it (Android, Chrome/Edge), one tap opens its own
+ * install dialog; elsewhere (iPhone/iPad, other browsers) it shows the few steps to add the app to the home screen.
+ * Hidden once the page is already running as the installed app.
+ */
+function GetTheApp() {
+  const { install } = useInstallApp();
+  const [guide, setGuide] = useState(false);
+  if (isInstalledApp()) return null;
+  const platform = devicePlatform();
+  return (
+    <div className="ax-app">
+      <span className="ax-app-icon"><img src="/icon-192.png" alt="" /></span>
+      <div className="ax-app-text"><b>UBUMWE HOUSE app</b><span>Open it from your home screen, like any app.</span></div>
+      <button type="button" className="ax-app-btn" onClick={() => (install ? void install() : setGuide(true))}><Icon d={ICONS.phone} size={16} />Install</button>
+      {guide && <InstallGuide platform={platform} onClose={() => setGuide(false)} />}
+    </div>
+  );
+}
+
+function InstallGuide({ platform, onClose }: { platform: 'ios' | 'android' | 'other'; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const d = ref.current;
+    if (d && !d.open) d.showModal();
+    return () => d?.close();
+  }, []);
+  const steps: Array<[string, ReactNode]> = platform === 'ios'
+    ? [[ICONS.share, <>Tap the <b>Share</b> button <span className="ax-key"><Icon d={ICONS.share} size={14} /></span> at the bottom of Safari (top right on iPad).</>],
+       [ICONS.plus, <>Scroll down and tap <b>Add to Home Screen</b>.</>],
+       [ICONS.check, <>Tap <b>Add</b>. The UBUMWE HOUSE icon appears on your home screen.</>]]
+    : platform === 'android'
+      ? [[ICONS.phone, <>Open the browser menu <span className="ax-key">⋮</span> (top right in Chrome).</>],
+         [ICONS.plus, <>Tap <b>Install app</b> or <b>Add to Home screen</b>.</>],
+         [ICONS.check, <>Confirm with <b>Install</b>. The UBUMWE HOUSE icon appears with your other apps.</>]]
+      : [[ICONS.phone, <>In Chrome or Edge, click the install icon <span className="ax-key"><Icon d={ICONS.plus} size={14} /></span> at the right end of the address bar.</>],
+         [ICONS.plus, <>Or open the browser menu and choose <b>Install UBUMWE HOUSE</b> (or <b>Apps → Install</b>).</>],
+         [ICONS.check, <>On a phone, open this page there and use its Install button.</>]];
+  return (
+    <dialog ref={ref} className="ax-report ax-guide" onCancel={(e) => { e.preventDefault(); onClose(); }} aria-labelledby="ax-guide-title">
+      <div className="ax-report-head">
+        <div>
+          <p className="ax-report-kicker">{platform === 'ios' ? 'iPhone & iPad' : platform === 'android' ? 'Android' : 'Computer'}</p>
+          <h2 id="ax-guide-title">Install the UBUMWE HOUSE app</h2>
+        </div>
+        <button type="button" className="ax-report-close" onClick={onClose} aria-label="Close">✕</button>
+      </div>
+      <ol className="ax-guide-steps">
+        {steps.map(([icon, text], i) => <li key={i}><span className="ax-guide-num">{i + 1}</span><span className="ax-guide-icon"><Icon d={icon} /></span><p>{text}</p></li>)}
+      </ol>
+      {platform === 'ios' && <p className="ax-fine ax-guide-note">Use <b>Safari</b> for this: other browsers on iPhone may not show “Add to Home Screen”.</p>}
+      <div className="ax-guide-foot"><button type="button" className="ax-cta" onClick={onClose}>Got it</button></div>
+    </dialog>
+  );
+}
+
 // ───────────── Tenant balance check (no sign-in) ─────────────
 
 interface BalanceResult {
@@ -476,6 +538,7 @@ export function Login() {
           </div>
         </div>
         {step === 'login' && <BalanceCheck />}
+        {step === 'login' && <GetTheApp />}
         <p className="ax-foot">© {new Date().getFullYear()} UBUMWE HOUSE · Secure sign-in</p>
       </main>
     </div>

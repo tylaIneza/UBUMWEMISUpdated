@@ -42,3 +42,17 @@ export function useInstallApp(): { install: (() => Promise<void>) | null } {
     },
   };
 }
+
+/** True when the page runs as the installed app (home-screen icon) rather than in a browser tab. */
+export function isInstalledApp(): boolean {
+  return window.matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+}
+
+/** Which install instructions fit this device: iPhone/iPad (Share → Add to Home Screen), Android, or anything else. */
+export function devicePlatform(): 'ios' | 'android' | 'other' {
+  const ua = navigator.userAgent;
+  // iPadOS reports itself as a Mac; a touch screen gives it away.
+  if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return 'ios';
+  if (/Android/.test(ua)) return 'android';
+  return 'other';
+}

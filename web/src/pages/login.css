@@ -122,6 +122,26 @@
   .ax-report-table .wide { display: none; } /* phones: month, room and unpaid amount only */
 }
 
+/* ── Install as an app ── */
+.ax-app { width: min(440px, 100%); display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 18px; color: #fff;
+  background: rgba(8, 20, 40, .62); border: 1px solid rgba(255, 255, 255, .16); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.ax-app-icon img { width: 44px; height: 44px; border-radius: 11px; display: block; box-shadow: 0 6px 16px -6px rgba(0, 0, 0, .6); }
+.ax-app-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ax-app-text b { font-size: 14.5px; font-weight: 700; } .ax-app-text span { font-size: 12.5px; color: #c9dbff; }
+.ax-app-btn { flex-shrink: 0; display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0 16px; border: 0; border-radius: 12px; cursor: pointer;
+  font: inherit; font-size: 14px; font-weight: 700; color: var(--navy-2); background: #fff; box-shadow: 0 8px 18px -8px rgba(0, 0, 0, .55); transition: transform .14s, box-shadow .14s; }
+.ax-app-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 24px -10px rgba(0, 0, 0, .6); } .ax-app-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.ax-guide { width: min(460px, calc(100vw - 24px)); }
+.ax-guide-steps { list-style: none; margin: 0; padding: 20px 24px 4px; display: grid; gap: 14px; }
+.ax-guide-steps li { display: grid; grid-template-columns: 26px 36px 1fr; align-items: center; gap: 10px; }
+.ax-guide-steps p { margin: 0; font-size: 14.5px; line-height: 1.45; color: var(--ink); }
+.ax-guide-num { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 800; color: #fff; background: var(--blue); }
+.ax-guide-icon { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: var(--blue-2); background: #eef3ff; }
+.ax-key { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 22px; padding: 0 5px; margin: 0 2px; vertical-align: -5px; border-radius: 6px; border: 1px solid var(--line); background: #f7f9fd; font-weight: 700; }
+.ax-guide-note { padding: 6px 24px 0; text-align: left; }
+.ax-guide-foot { padding: 16px 24px 22px; }
+@media (max-width: 560px) { .ax-guide-steps { padding: 18px 16px 4px; } .ax-guide-note { padding: 6px 16px 0; } .ax-guide-foot { padding: 14px 16px 18px; } }
+
 /* ── OTP ── */
 .ax-steps { list-style: none; margin: 0 0 4px; padding: 0; display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
 .ax-steps li { display: flex; align-items: center; gap: 8px; white-space: nowrap; } .ax-steps .ax-line { flex: 1; height: 2px; min-width: 16px; border-radius: 2px; background: linear-gradient(90deg, var(--teal), var(--blue)); }
