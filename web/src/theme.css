@@ -167,10 +167,27 @@
   }
 }
 
-/* Dashboard wallpaper: aerial photo of the Kigali Convention Centre behind the whole page, darkened so cards stay readable. */
+/* Dashboard: the UBUMWE HOUSE building shown clearly in a banner at the top; behind the cards only a blurred, darkened copy, so figures stay readable. */
 @media screen {
-  .dash-wallpaper { position: fixed; inset: 0; z-index: -1; pointer-events: none;
-    background: linear-gradient(180deg, rgba(5, 13, 28, 0.55) 0%, rgba(5, 13, 28, 0.78) 45%, rgba(5, 13, 28, 0.9) 100%), url(/brand/kcc.jpg) center 35% / cover no-repeat; }
+  .dash-wallpaper { position: fixed; inset: -40px; z-index: -1; pointer-events: none; filter: blur(22px) saturate(1.15);
+    background: linear-gradient(180deg, rgba(5, 13, 28, 0.62) 0%, rgba(5, 13, 28, 0.86) 55%, rgba(5, 13, 28, 0.94) 100%), url(/brand/ubumwe-house.jpg) center 30% / cover no-repeat; }
+  .dash-hero { position: relative; min-height: 340px; display: flex; align-items: flex-end; padding: 28px 30px 26px; border-radius: 24px; overflow: hidden;
+    background:
+      linear-gradient(0deg, rgba(5, 13, 28, 0.92) 0%, rgba(5, 13, 28, 0.55) 32%, rgba(5, 13, 28, 0) 62%),
+      linear-gradient(90deg, rgba(5, 13, 28, 0.55) 0%, rgba(5, 13, 28, 0) 45%),
+      url(/brand/ubumwe-house.jpg) 50% 4% / cover no-repeat;
+    border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(47, 107, 255, 0.08); }
+  .dash-hero .page-head { width: 100%; margin: 0; align-items: flex-end; }
+  .dash-hero h1 { font-size: 30px; text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55); }
+  .dash-hero .page-head p { color: #d5e2ff; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6); }
+  .dash-hero .page-head .row { justify-content: flex-end; }
+  .dash-hero .btn:not(.primary) { background: rgba(8, 20, 40, 0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-color: rgba(255, 255, 255, 0.22); }
+  @media (max-width: 900px) { .dash-hero { min-height: 260px; padding: 20px 18px 18px; border-radius: 20px; background-position: 0 0, 0 0, 60% 12%; } .dash-hero h1 { font-size: 24px; } }
+  /* Phones: the photo becomes a band across the top, with the title and buttons below it on a dark fade. */
+  @media (max-width: 600px) {
+    .dash-hero { min-height: 0; padding: 150px 14px 14px;
+      background: linear-gradient(180deg, rgba(5, 13, 28, 0) 0, rgba(5, 13, 28, 0) 105px, rgba(8, 20, 40, 0.97) 172px), url(/brand/ubumwe-house.jpg) center top / 100% auto no-repeat, #081428; }
+  }
 }
 
 /* "Install app" at the foot of the menu, shown only while the browser allows installing. */

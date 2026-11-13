@@ -108,9 +108,11 @@ export function Dashboard() {
   const failing = (d.reconciliation ?? []).filter((c: any) => !c.ok);
   return (
     <div className="stack">
-      {/* Aerial photo of the Kigali Convention Centre behind the whole dashboard (credited on the sign-in page). */}
+      {/* The UBUMWE HOUSE building: shown clearly in the banner, and blurred behind the rest of the page. */}
       <div className="dash-wallpaper" aria-hidden="true" />
-      <PageHead title="Dashboard" sub={`${d.month} · as of ${date(d.today)}`}><QuickActions /></PageHead>
+      <div className="dash-hero">
+        <PageHead title="Dashboard" sub={`${d.month} · as of ${date(d.today)}`}><QuickActions /></PageHead>
+      </div>
 
       {failing.length > 0 && (
         <Alert>

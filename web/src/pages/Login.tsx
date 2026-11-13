@@ -56,7 +56,7 @@ function BrandPanel() {
       <div className="ax-glow one" /><div className="ax-glow two" />
       <div className="ax-brand-top ax-rise" style={{ animationDelay: '0ms' }}><Brand /></div>
       <div className="ax-visual ax-rise" style={{ animationDelay: '80ms' }}>
-        <img src="/brand/kcc.jpg" alt="Aerial photo of the Kigali Convention Centre" />
+        <img src="/brand/ubumwe-house.jpg" alt="The UBUMWE HOUSE building" />
         <div className="ax-visual-shade" />
         <p className="ax-visual-caption">More Than Just a Building</p>
       </div>
@@ -352,8 +352,6 @@ export function Login() {
           </div>
         </div>
         <p className="ax-foot">© {new Date().getFullYear()} UBUMWE HOUSE · Secure sign-in</p>
-        {/* The KCC photo's licence (CC BY-SA 4.0) requires this credit somewhere in the app; it is kept here, off the picture. */}
-        <p className="ax-foot ax-credit">KCC photo: <a href="https://commons.wikimedia.org/wiki/File:An_aerial_of_Kigali_Convention_Center_on_June_19,_2019._Photo_by_Emmanuel_Kwizera.jpg" target="_blank" rel="noreferrer">Emmanuel Kwizera</a>, CC BY-SA 4.0</p>
       </main>
     </div>
   );
