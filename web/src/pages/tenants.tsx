@@ -59,7 +59,7 @@ export function Tenants() {
       </Card>
       {importing && <Modal wide title="Import tenants" onClose={() => setImporting(false)}><ImportPanel scope="tenants" /></Modal>}
       {wiping && (
-        <Confirm title="Delete ALL tenants?" danger confirmLabel="Delete all tenants permanently" reason="Type DELETE to confirm" onClose={() => setWiping(false)} onConfirm={(text) => wipe.mutateAsync(text)}>
+        <Confirm title="Delete ALL tenants?" danger confirmLabel="Delete all tenants permanently" reason="Type the word DELETE to confirm" onClose={() => setWiping(false)} onConfirm={(text) => wipe.mutateAsync(text)}>
           This permanently deletes every tenant{list.data?.total ? ` (${list.data.total} in the current list, plus any hidden by filters)` : ''} together with ALL their contracts, rent charges, payments, receipts, invoices, deposits and messages. Occupied rooms become vacant. Buildings, rooms and expenses are kept. This cannot be undone.
         </Confirm>
       )}
