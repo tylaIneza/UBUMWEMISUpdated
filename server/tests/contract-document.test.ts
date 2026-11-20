@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/db.js';
 import { correctContractDates, createContract, giveContract, renewContract } from '../src/services/contracts.js';
-import { contractDocument } from '../src/services/contractDocument.js';
+import { contractDocument, kinyarwandaDuration } from '../src/services/contractDocument.js';
 import { createTenant } from '../src/services/tenants.js';
 import { updateBuilding } from '../src/services/property.js';
 import { generateReport } from '../src/services/reports.js';
@@ -55,7 +55,7 @@ describe('lease contract document', () => {
     const doc = await contractDocument(w.actors.MANAGEMENT, contractId, 'docx');
     expect(doc.buffer.subarray(0, 2).toString()).toBe('PK');
     const text = docxText(doc.buffer);
-    for (const expected of ['Diane Boutique Ltd', 'MUKAMANA Diane', 'Nyarugenge', 'Kimisagara', 'Kamuhoza', 'Akabeza', '0788337758', '123456789', 'diane@example.rw', 'itariki ya 5  ya buri kwezi', 'igihe cy’umwaka umwe (1)', 'yitwa "Ukodesha" (Lessee)']) {
+    for (const expected of ['Diane Boutique Ltd', 'MUKAMANA Diane', 'Nyarugenge', 'Kimisagara', 'Kamuhoza', 'Akabeza', '0788337758', '123456789', 'diane@example.rw', 'itariki ya 5  ya buri kwezi', 'igihe cy’amezi atandatu (6)', 'yitwa "Ukodesha" (Lessee)']) {
       expect(text, expected).toContain(expected);
     }
     const room = await prisma.room.findFirstOrThrow({ where: { contracts: { some: { id: contractId } } } });
@@ -65,10 +65,10 @@ describe('lease contract document', () => {
     const net = Math.round(rent / 1.18);
     const f = (n: number) => `${n.toLocaleString('en-US')} Frw`;
     expect(text).toContain(`amafaranga y’u Rwanda ${f(rent)} Ayo mafaranga akubiyemo ${f(net)} hiyongereyeho ${f(rent - net)} By’umusoro ku nyongeragaciro (TVA) wa 18%`);
-    // The written lease always runs one whole year from the start date, whatever the end date in the system.
+    // Ingingo 8 states the length chosen for the contract (here six months) and its own end date.
     const c = await prisma.contract.findUniqueOrThrow({ where: { id: contractId } });
-    expect(text).toContain(`uhereye ku itariki ya ${fmt(c.startDate)} kugeza kuwa ${fmt(yearEnd(c.startDate))}`);
-    expect(text).not.toContain('amezi atandatu');
+    expect(text).toContain(`uhereye ku itariki ya ${fmt(c.startDate)} kugeza kuwa ${fmt(c.endDate)}`);
+    expect(text).not.toContain('amezi atandatu uhereye');
     expect(text).not.toMatch(/\((Company Name|customer name|Id Number|Room Number)\)/);
     // UBUMWE HOUSE's own details are those of the original, so its wording is kept exactly.
     for (const original of ['UBUMWE HOUSE LTD', 'UWIMANA Annonciata', 'TIN:118631022', 'No:4491194467', 'BPR BANK', 'UPI:  1/01/04/03/2785', 'mu nyubako y’UBUMWE HOUSE ltd', 'Bikorewe i Nyarugenge']) expect(text).toContain(original);
@@ -89,18 +89,18 @@ describe('lease contract document', () => {
     expect(await prisma.auditLog.count({ where: { action: 'CONTRACT_DOCUMENT_GENERATED', entityId: c.id } })).toBe(2);
   });
 
-  it('prints one year from the renewal’s start in Ingingo 8, and from a corrected start date', async () => {
+  it('prints the renewal’s own start, end and length in Ingingo 8, also after correcting the dates', async () => {
     const b = await makeBuilding(w, 'REN', 1, 1, 200000);
     await updateBuilding(w.actors.SUPER_ADMIN, b.id, { ...UBUMWE, contractTemplate: 'contract-ubumwe.docx' });
     const t = await createTenant(w.actors.PROPERTY_STAFF, { fullName: 'Renewing Tenant', idNumber: rwandanId(), phone: '+250788000333' });
     const first = await createContract(w.actors.MANAGEMENT, { tenantId: t.id, roomId: b.floors[0]!.rooms[0]!.id, startDate: thisMonth(), endDate: endOfMonth(thisMonth()), activate: true });
     const renewed = await renewContract(w.actors.MANAGEMENT, first.id, { endDate: endOfMonth(addMonths(thisMonth(), 6)) });
     const text = docxText((await contractDocument(w.actors.MANAGEMENT, renewed.id, 'docx')).buffer);
-    // Renewed for six months, but the written lease still covers a whole year from the renewal's start.
-    expect(text).toContain(`uhereye ku itariki ya ${fmt(addMonths(thisMonth(), 1))} kugeza kuwa ${fmt(yearEnd(addMonths(thisMonth(), 1)))}`);
+    // Renewed from next month to the end of the month six months from now: six calendar months.
+    expect(text).toContain(`igihe cy’amezi atandatu (6) uhereye ku itariki ya ${fmt(addMonths(thisMonth(), 1))} kugeza kuwa ${fmt(endOfMonth(addMonths(thisMonth(), 6)))}`);
     await correctContractDates(w.actors.MANAGEMENT, renewed.id, { startDate: addMonths(thisMonth(), 2), endDate: endOfMonth(addMonths(thisMonth(), 7)), reason: 'Tenant starts working later' });
     const corrected = docxText((await contractDocument(w.actors.MANAGEMENT, renewed.id, 'docx')).buffer);
-    expect(corrected).toContain(`uhereye ku itariki ya ${fmt(addMonths(thisMonth(), 2))} kugeza kuwa ${fmt(yearEnd(addMonths(thisMonth(), 2)))}`);
+    expect(corrected).toContain(`igihe cy’amezi atandatu (6) uhereye ku itariki ya ${fmt(addMonths(thisMonth(), 2))} kugeza kuwa ${fmt(endOfMonth(addMonths(thisMonth(), 7)))}`);
   });
 
   it('prints the contract a tenant was given later with its own start date', async () => {
@@ -111,7 +111,7 @@ describe('lease contract document', () => {
     const start = addMonths(thisMonth(), 2);
     await giveContract(w.actors.MANAGEMENT, tenancy.id, { startDate: start, endDate: yearEnd(start) });
     const doc = await contractDocument(w.actors.MANAGEMENT, tenancy.id, 'docx');
-    expect(docxText(doc.buffer)).toContain(`uhereye ku itariki ya ${fmt(start)} kugeza kuwa ${fmt(yearEnd(start))}`);
+    expect(docxText(doc.buffer)).toContain(`igihe cy’umwaka umwe (1) uhereye ku itariki ya ${fmt(start)} kugeza kuwa ${fmt(yearEnd(start))}`);
     // No ID number or phone yet: those are printed as lines to fill in by hand.
     expect(doc.missing).toEqual(expect.arrayContaining(['idNumber', 'phone']));
   });
@@ -168,5 +168,20 @@ describe('lease contract document', () => {
     expect(doc.buildingMissing).toContain('lessorName');
     // A report on that building is headed with the building's name, never another company's.
     expect((await generateReport(w.actors.MANAGEMENT, 'monthly-rent', { from: thisMonth(), to: endOfMonth(thisMonth()), buildingId: b.id })).organization).toBe('Building NOD');
+  });
+});
+
+describe('contract length in Kinyarwanda (Ingingo 8)', () => {
+  const u = (s: string) => new Date(`${s}T00:00:00Z`);
+  it('writes the chosen length with the right agreement', () => {
+    expect(kinyarwandaDuration(u('2026-11-01'), u('2026-11-30'))).toBe('ukwezi kumwe (1)');
+    expect(kinyarwandaDuration(u('2026-11-20'), u('2026-12-31'))).toBe('amezi abiri (2)');
+    expect(kinyarwandaDuration(u('2026-11-20'), u('2027-01-31'))).toBe('amezi atatu (3)');
+    expect(kinyarwandaDuration(u('2026-11-01'), u('2027-04-30'))).toBe('amezi atandatu (6)');
+    expect(kinyarwandaDuration(u('2026-11-01'), u('2027-10-31'))).toBe('umwaka umwe (1)');
+    expect(kinyarwandaDuration(u('2026-11-15'), u('2027-11-14'))).toBe('umwaka umwe (1)');
+    expect(kinyarwandaDuration(u('2026-11-01'), u('2028-04-30'))).toBe('umwaka umwe n’amezi atandatu (amezi 18)');
+    expect(kinyarwandaDuration(u('2026-11-01'), u('2028-10-31'))).toBe('imyaka ibiri (2)');
+    expect(kinyarwandaDuration(u('2026-11-10'), u('2026-11-24'))).toBe('iminsi 15 (15)');
   });
 });

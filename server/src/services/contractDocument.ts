@@ -48,6 +48,33 @@ const SOFFICE_PATHS = [process.env.SOFFICE_PATH, '/Applications/LibreOffice.app/
 const BLANK = '……………………………';
 const DOTS = '[….]+';
 const RW_DATE = (d: Date) => `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
+
+// Kinyarwanda numbers agree with the noun: amezi (months) and imyaka (years) take different prefixes.
+const MONTH_WORDS = ['', 'ukwezi kumwe', 'amezi abiri', 'amezi atatu', 'amezi ane', 'amezi atanu', 'amezi atandatu', 'amezi arindwi', 'amezi umunani', 'amezi icyenda', 'amezi icumi', 'amezi cumi n’umwe'];
+const YEAR_WORDS = ['', 'umwaka umwe', 'imyaka ibiri', 'imyaka itatu', 'imyaka ine', 'imyaka itanu', 'imyaka itandatu', 'imyaka irindwi', 'imyaka umunani', 'imyaka icyenda', 'imyaka icumi'];
+
+/**
+ * How long a lease runs, as written in Ingingo 8: "amezi abiri (2)", "umwaka umwe (1)", "umwaka umwe n’amezi atandatu
+ * (amezi 18)". Counted in whole calendar months when the end is the last day of a month (how the forms set it: rent is
+ * billed per calendar month) or the day before the same day of a later month; otherwise in days.
+ */
+export function kinyarwandaDuration(start: Date, end: Date): string {
+  const dayAfterEnd = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate() + 1));
+  const monthSpan = (end.getUTCFullYear() - start.getUTCFullYear()) * 12 + end.getUTCMonth() - start.getUTCMonth();
+  let months: number | null = null;
+  if (dayAfterEnd.getUTCDate() === start.getUTCDate()) months = monthSpan + (dayAfterEnd.getUTCMonth() !== end.getUTCMonth() ? 1 : 0);
+  else if (dayAfterEnd.getUTCDate() === 1) months = monthSpan + 1;
+  if (!months || months < 1) {
+    const days = Math.round((dayAfterEnd.getTime() - start.getTime()) / 86_400_000);
+    return `iminsi ${days} (${days})`;
+  }
+  const years = Math.floor(months / 12);
+  const rest = months % 12;
+  if (!years) return `${MONTH_WORDS[rest]} (${rest})`;
+  const y = YEAR_WORDS[years] ?? `imyaka ${years}`;
+  if (!rest) return `${y} (${years})`;
+  return `${y} n’${MONTH_WORDS[rest]} (amezi ${months})`;
+}
 const RWF = (n: number) => `${Math.round(n).toLocaleString('en-US')} Frw`;
 /** +250788123456 → 0788123456 (how Rwandan numbers are written on paper); other numbers unchanged. */
 const localPhone = (p: string) => (/^\+2507\d{8}$/.test(p) ? `0${p.slice(4)}` : p);
@@ -92,10 +119,11 @@ async function contractValues(orgId: string, id: string) {
     rentExclVat: RWF(net),
     vat: RWF(rent - net),
     paymentDay: String(c.paymentDueDay),
-    // Ingingo 8: the written lease always covers one whole year from the start date (a renewal's own start, or a
-    // corrected start), whatever the tenant has paid so far — the contract's end date in the system follows payments.
+    // Ingingo 8: the length chosen for the contract (1 month, 2 months, 1 year…), from its start (a renewal's own
+    // start, or a corrected start) to its end date, written out in Kinyarwanda.
     startDate: RW_DATE(lease),
-    endDate: RW_DATE(new Date(Date.UTC(lease.getUTCFullYear() + 1, lease.getUTCMonth(), lease.getUTCDate() - 1))),
+    endDate: RW_DATE(c.endDate),
+    duration: kinyarwandaDuration(lease, c.endDate),
     signedDate: RW_DATE(c.createdAt),
     // The landlord: the company that owns this building (Buildings → Edit → company details).
     lessorName: b.companyName, managerName: b.managerName, lessorTin: b.tin, lessorPhone: b.phone, lessorEmail: b.email,
@@ -217,7 +245,7 @@ function fillDocumentXml(xml: string, values: Record<string, string | null>): st
       return b(key) + (/^[\p{L}\p{N}]$/u.test(m[2] ?? '') ? ' ' : '');
     });
     p = replaceInParagraph(p, new RegExp(`(Ayo mafaranga akubiyemo )${DOTS}\\s*(hiyongereyeho )${DOTS}\\s*`), (m) => `${m[1]}${b('rentExclVat')} ${m[2]}${b('vat')} `);
-    p = replaceInParagraph(p, /igihe cy’amezi atandatu/, () => `igihe cy’${BOLD_ON}umwaka umwe (1)${BOLD_OFF}`);
+    p = replaceInParagraph(p, /igihe cy’amezi atandatu/, () => `igihe cy’${BOLD_ON}${values.duration}${BOLD_OFF}`);
     p = replaceInParagraph(p, new RegExp(`(uhereye ku itariki ya )${DOTS}`), (m) => m[1] + b('startDate'));
     p = replaceInParagraph(p, new RegExp(`(kugeza kuwa)${DOTS}`), (m) => `${m[1]} ${b('endDate')}`);
     p = replaceInParagraph(p, new RegExp(`(Bikorewe i Nyarugenge kuwa )${DOTS}`), (m) => m[1] + b('signedDate'));
