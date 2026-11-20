@@ -24,7 +24,7 @@ describe('deleting records created by mistake', () => {
     expect((log.oldValue as { number: string }).number).toBe(room.number);
   });
 
-  it('refuses to delete a room, floor or building that has rent history, and says why', async () => {
+  it('refuses to delete a room or floor that has rent history, and says why', async () => {
     const b = await makeBuilding(w, 'HX', 1, 2);
     const room = b.floors[0]!.rooms[0]!;
     const { contract } = await lease(w, room.id);
@@ -34,7 +34,6 @@ describe('deleting records created by mistake', () => {
     expect(err.message).toMatch(/1 contract, 1 payment, 1 rent charge/);
     expect(err.message).toMatch(/set its status to Inactive/);
     expect((await failure(deleteFloor(w.actors.SUPER_ADMIN, b.floors[0]!.id))).code).toBe('HAS_HISTORY');
-    expect((await failure(deleteBuilding(w.actors.SUPER_ADMIN, b.id))).code).toBe('HAS_HISTORY');
     expect(await prisma.room.count({ where: { buildingId: b.id } })).toBe(2);
     // The database also refuses to drop the rent history of a room that has been let.
     await expect(prisma.roomRentRate.deleteMany({ where: { roomId: room.id } })).rejects.toThrow(/has been let/);
@@ -47,6 +46,40 @@ describe('deleting records created by mistake', () => {
     expect(await prisma.floor.count({ where: { buildingId: b.id } })).toBe(0);
     expect(await prisma.room.count({ where: { buildingId: b.id } })).toBe(0);
     expect(await prisma.auditLog.count({ where: { action: 'BUILDING_DELETED', entityId: b.id } })).toBe(1);
+  });
+
+  it('deletes a building that has history together with all of it, keeping tenants who rent elsewhere', async () => {
+    const b = await makeBuilding(w, 'PURGE', 1, 2);
+    const other = await makeBuilding(w, 'KEEP', 1, 1);
+    const [r1, r2] = b.floors[0]!.rooms;
+    const { contract: c1, tenant: onlyHere } = await lease(w, r1!.id);
+    await pay(w, 'CASHIER', c1.id, 1000);
+    const { contract: c2, tenant: alsoElsewhere } = await lease(w, r2!.id);
+    await pay(w, 'CASHIER', c2.id, 500);
+    await createContract(w.actors.MANAGEMENT, { tenantId: alsoElsewhere.id, roomId: other.floors[0]!.rooms[0]!.id, startDate: thisMonth(), endDate: endOfMonth(addMonths(thisMonth(), 5)), activate: false });
+    const paymentsElsewhere = await prisma.payment.count({ where: { buildingId: { not: b.id } } });
+
+    await deleteBuilding(w.actors.SUPER_ADMIN, b.id);
+
+    expect(await prisma.building.count({ where: { id: b.id } })).toBe(0);
+    expect(await prisma.room.count({ where: { buildingId: b.id } })).toBe(0);
+    expect(await prisma.contract.count({ where: { buildingId: b.id } })).toBe(0);
+    expect(await prisma.payment.count({ where: { buildingId: b.id } })).toBe(0);
+    expect(await prisma.rentCharge.count({ where: { buildingId: b.id } })).toBe(0);
+    expect(await prisma.tenant.count({ where: { id: onlyHere.id } })).toBe(0);
+    expect(await prisma.tenant.count({ where: { id: alsoElsewhere.id } })).toBe(1);
+    expect(await prisma.payment.count({ where: { buildingId: { not: b.id } } })).toBe(paymentsElsewhere);
+    expect(await prisma.room.count({ where: { buildingId: other.id } })).toBe(1);
+    const log = await prisma.auditLog.findFirstOrThrow({ where: { action: 'BUILDING_DELETED', entityId: b.id } });
+    expect(log.summary).toMatch(/2 contracts, 2 payments/);
+
+    // Outside the building delete the database still refuses to drop financial records.
+    const otherBuilding = await makeBuilding(w, 'GUARD', 1, 1);
+    const { contract: c3 } = await lease(w, otherBuilding.floors[0]!.rooms[0]!.id);
+    const p3 = await pay(w, 'CASHIER', c3.id, 700);
+    await expect(prisma.payment.delete({ where: { id: p3.id } })).rejects.toThrow(/payments cannot be deleted/);
+    await expect(prisma.rentCharge.deleteMany({ where: { contractId: c3.id } })).rejects.toThrow(/rent charges cannot be deleted/);
+    await expect(prisma.contract.delete({ where: { id: c3.id } })).rejects.toThrow(/only draft contracts can be deleted/);
   });
 
   it('deletes a floor together with its unused rooms', async () => {

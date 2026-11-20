@@ -39,7 +39,7 @@ export function Buildings() {
       </Card>
       {remove && (
         <Confirm title={`Delete ${remove.name}?`} danger confirmLabel="Delete permanently" onClose={() => setRemove(null)} onConfirm={() => del.mutateAsync(remove.id)}>
-          This permanently removes the building with its {remove.floorCount} floor(s) and {remove.totalRooms} room(s). It is only possible if none of its rooms has ever had a contract, payment, expense or maintenance record — otherwise you will be told why, and you can set the building to Inactive instead.
+          This permanently removes the building with its {remove.floorCount} floor(s) and {remove.totalRooms} room(s), and ALL of its history: contracts, rent charges, payments, receipts, invoices, deposits, expenses, maintenance requests and documents. Tenants who rented only in this building are deleted too. This cannot be undone. To keep the records, set the building to Inactive instead.
         </Confirm>
       )}
       {edit && (

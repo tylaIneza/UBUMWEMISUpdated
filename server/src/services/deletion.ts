@@ -8,10 +8,11 @@ import { logger } from '../logger.js';
 import { audit } from './audit.js';
 
 /**
- * Permanent deletion of records created by mistake. Only records with NO financial or
- * occupancy history can be deleted: once a contract, rent charge, payment, deposit, expense
- * or maintenance record exists, the record is part of the books and is kept. The reason is
- * explained to the user, with the safe alternative (mark inactive / former).
+ * Permanent deletion of records created by mistake. Rooms, floors and tenants can only be deleted
+ * when they have NO financial or occupancy history: once a contract, rent charge, payment, deposit,
+ * expense or maintenance record exists, they are part of the books and are kept, and the reason is
+ * explained to the user with the safe alternative (mark inactive / former). A building is the
+ * exception: deleting it removes it together with all of its history (see deleteBuilding).
  * Every deletion is written to the audit log with the full deleted record.
  */
 
@@ -93,28 +94,89 @@ export async function deleteFloor(actor: Actor, id: string) {
   });
 }
 
+/**
+ * Permanently deletes a building with EVERYTHING recorded against it: floors, rooms, contracts,
+ * rent charges, payments (with allocations, receipts and invoices), deposits, expenses, maintenance,
+ * reservations, approvals and documents. Tenants whose only tenancy was in this building are deleted
+ * too; tenants who also rent elsewhere are kept. The database's append-only delete guards allow this
+ * only while @rpms_purge = 1 is set on the transaction's connection (migration 20261120000000).
+ */
 export async function deleteBuilding(actor: Actor, id: string) {
-  const roomIds = await inTransaction(async (tx) => {
+  const removed = await inTransaction(async (tx) => {
     const building = await tx.building.findFirst({ where: { id, orgId: actor.orgId }, include: { floors: { select: { id: true, name: true } }, rooms: { select: { id: true, number: true } } } });
     if (!building) throw notFound('Building');
     const roomIds = building.rooms.map((r) => r.id);
-    const h = await roomsHistory(tx, roomIds);
-    h.expenses += await tx.expense.count({ where: { buildingId: id, roomId: null } });
-    h.maintenance += await tx.maintenanceRequest.count({ where: { buildingId: id, roomId: null } });
-    if (hasHistory(h)) {
-      throw conflict(`${building.name} cannot be deleted because it has history (${describe(h)}). Rent, payment and expense records must be kept. To stop using it, edit the building and set it to Inactive.`, 'HAS_HISTORY', h);
+    const floorIds = building.floors.map((f) => f.id);
+    const pick = (rows: Array<{ id: string }>) => rows.map((r) => r.id);
+
+    const contractIds = pick(await tx.contract.findMany({ where: { buildingId: id }, select: { id: true } }));
+    const paymentIds = pick(await tx.payment.findMany({ where: { OR: [{ buildingId: id }, { contractId: { in: contractIds } }] }, select: { id: true } }));
+    const chargeIds = pick(await tx.rentCharge.findMany({ where: { OR: [{ buildingId: id }, { contractId: { in: contractIds } }] }, select: { id: true } }));
+    const maintenanceIds = pick(await tx.maintenanceRequest.findMany({ where: { buildingId: id }, select: { id: true } }));
+    const expenseIds = pick(await tx.expense.findMany({
+      where: { OR: [{ buildingId: id }, { floorId: { in: floorIds } }, { roomId: { in: roomIds } }, { maintenanceRequestId: { in: maintenanceIds } }] }, select: { id: true },
+    }));
+    const depositIds = pick(await tx.depositTransaction.findMany({ where: { contractId: { in: contractIds } }, select: { id: true } }));
+    const invoiceIds = pick(await tx.invoice.findMany({ where: { OR: [{ buildingId: id }, { paymentId: { in: paymentIds } }] }, select: { id: true } }));
+    // Tenants who rented only here: nothing in any other building.
+    const tenantIds = pick(await tx.tenant.findMany({
+      where: {
+        orgId: actor.orgId,
+        contracts: { some: { buildingId: id }, none: { buildingId: { not: id } } },
+        payments: { none: { buildingId: { not: id } } },
+      },
+      select: { id: true },
+    }));
+
+    const counts = { contracts: contractIds.length, payments: paymentIds.length, charges: chargeIds.length, expenses: expenseIds.length, deposits: depositIds.length, maintenance: maintenanceIds.length, tenants: tenantIds.length };
+    const entityIds = [id, ...floorIds, ...roomIds, ...contractIds, ...paymentIds, ...chargeIds, ...maintenanceIds, ...expenseIds, ...depositIds, ...invoiceIds, ...tenantIds];
+
+    await tx.$executeRawUnsafe('SET @rpms_purge = 1');
+    try {
+      await tx.paymentAllocation.deleteMany({ where: { OR: [{ paymentId: { in: paymentIds } }, { rentChargeId: { in: chargeIds } }] } });
+      await tx.receipt.deleteMany({ where: { paymentId: { in: paymentIds } } });
+      await tx.invoice.deleteMany({ where: { id: { in: invoiceIds } } });
+      await tx.payment.deleteMany({ where: { id: { in: paymentIds }, reversesId: { not: null } } }); // reversals before the payments they reverse
+      await tx.payment.deleteMany({ where: { id: { in: paymentIds } } });
+      await tx.rentCharge.deleteMany({ where: { id: { in: chargeIds } } });
+      await tx.depositTransaction.deleteMany({ where: { id: { in: depositIds } } });
+      await tx.rentAdjustment.deleteMany({ where: { contractId: { in: contractIds } } });
+      await tx.contractRentRate.deleteMany({ where: { contractId: { in: contractIds } } });
+      await tx.messageLog.deleteMany({ where: { OR: [{ contractId: { in: contractIds } }, { tenantId: { in: tenantIds } }] } });
+      await tx.expense.deleteMany({ where: { id: { in: expenseIds } } });
+      await tx.maintenanceRequest.deleteMany({ where: { id: { in: maintenanceIds } } });
+      await tx.reservation.deleteMany({ where: { roomId: { in: roomIds } } });
+      await tx.reservation.updateMany({ where: { tenantId: { in: tenantIds } }, data: { tenantId: null } });
+      await tx.approvalRequest.deleteMany({ where: { entityId: { in: entityIds } } });
+      await tx.notification.deleteMany({ where: { entityId: { in: entityIds } } });
+      await tx.contract.updateMany({ where: { renewedFromId: { in: contractIds } }, data: { renewedFromId: null } });
+      await tx.contract.deleteMany({ where: { id: { in: contractIds } } });
+      await tx.tenant.deleteMany({ where: { id: { in: tenantIds } } });
+      await tx.roomRentRate.deleteMany({ where: { roomId: { in: roomIds } } });
+      await tx.room.deleteMany({ where: { id: { in: roomIds } } });
+      await tx.floor.deleteMany({ where: { buildingId: id } });
+      await tx.building.delete({ where: { id } });
+    } finally {
+      // The connection goes back to the pool: never leave the guards switched off on it.
+      await tx.$executeRawUnsafe('SET @rpms_purge = NULL');
     }
-    await removeRooms(tx, roomIds);
-    await tx.floor.deleteMany({ where: { buildingId: id } });
-    await tx.building.delete({ where: { id } });
+
+    const history = Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k}`).join(', ');
     await audit(tx, actor, {
       action: 'BUILDING_DELETED', entityType: 'Building', entityId: id,
-      summary: `Building ${building.name} deleted with ${building.floors.length} floor(s) and ${roomIds.length} unused room(s)`, oldValue: building,
+      summary: `Building ${building.name} deleted with ${building.floors.length} floor(s), ${roomIds.length} room(s)${history ? ` and all its history (${history})` : ''}`,
+      oldValue: { ...building, deleted: counts },
     });
-    return roomIds;
+    return { entityIds };
   });
-  await removeDocuments(actor.orgId, 'Room', roomIds);
-  await removeDocuments(actor.orgId, 'Building', [id]);
+  await removeDocumentsFor(actor.orgId, removed.entityIds);
+}
+
+async function removeDocumentsFor(orgId: string, entityIds: string[]) {
+  if (!entityIds.length) return;
+  const docs = await prisma.document.findMany({ where: { orgId, entityId: { in: entityIds } } });
+  await prisma.document.deleteMany({ where: { id: { in: docs.map((d) => d.id) } } });
+  for (const d of docs) await unlink(join(resolve(config.STORAGE_DIR), d.storedName)).catch((err) => logger.warn({ err, file: d.storedName }, 'document file not removed'));
 }
 
 export async function deleteTenant(actor: Actor, id: string) {
