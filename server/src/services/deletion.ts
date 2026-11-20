@@ -202,3 +202,66 @@ export async function deleteTenant(actor: Actor, id: string) {
   });
   await removeDocuments(actor.orgId, 'Tenant', [id]);
 }
+
+/**
+ * Permanently deletes EVERY tenant of the organization together with all tenancy records: contracts,
+ * rent charges, payments (allocations, receipts, invoices), deposits, rent adjustments, messages,
+ * tenant reservations, related approvals, notifications and documents. Rooms that were occupied (or
+ * reserved for a deleted reservation) become VACANT. Buildings, rooms, expenses and maintenance stay.
+ */
+export async function deleteAllTenants(actor: Actor) {
+  const removed = await inTransaction(async (tx) => {
+    const pick = (rows: Array<{ id: string }>) => rows.map((r) => r.id);
+    const tenantIds = pick(await tx.tenant.findMany({ where: { orgId: actor.orgId }, select: { id: true } }));
+    const contractIds = pick(await tx.contract.findMany({ where: { tenantId: { in: tenantIds } }, select: { id: true } }));
+    const paymentIds = pick(await tx.payment.findMany({ where: { OR: [{ tenantId: { in: tenantIds } }, { contractId: { in: contractIds } }] }, select: { id: true } }));
+    const chargeIds = pick(await tx.rentCharge.findMany({ where: { OR: [{ tenantId: { in: tenantIds } }, { contractId: { in: contractIds } }] }, select: { id: true } }));
+    const depositIds = pick(await tx.depositTransaction.findMany({ where: { contractId: { in: contractIds } }, select: { id: true } }));
+    const invoiceIds = pick(await tx.invoice.findMany({ where: { OR: [{ tenantId: { in: tenantIds } }, { paymentId: { in: paymentIds } }] }, select: { id: true } }));
+    const reservationIds = pick(await tx.reservation.findMany({ where: { tenantId: { in: tenantIds } }, select: { id: true } }));
+    const entityIds = [...tenantIds, ...contractIds, ...paymentIds, ...chargeIds, ...depositIds, ...invoiceIds, ...reservationIds];
+    const counts = { tenants: tenantIds.length, contracts: contractIds.length, payments: paymentIds.length, charges: chargeIds.length, deposits: depositIds.length };
+
+    await tx.$executeRawUnsafe('SET @rpms_purge = 1');
+    try {
+      await tx.paymentAllocation.deleteMany({ where: { OR: [{ paymentId: { in: paymentIds } }, { rentChargeId: { in: chargeIds } }] } });
+      await tx.receipt.deleteMany({ where: { paymentId: { in: paymentIds } } });
+      await tx.invoice.deleteMany({ where: { id: { in: invoiceIds } } });
+      await tx.payment.deleteMany({ where: { id: { in: paymentIds }, reversesId: { not: null } } }); // reversals before the payments they reverse
+      await tx.payment.deleteMany({ where: { id: { in: paymentIds } } });
+      await tx.rentCharge.deleteMany({ where: { id: { in: chargeIds } } });
+      await tx.depositTransaction.deleteMany({ where: { id: { in: depositIds } } });
+      await tx.rentAdjustment.deleteMany({ where: { contractId: { in: contractIds } } });
+      await tx.contractRentRate.deleteMany({ where: { contractId: { in: contractIds } } });
+      await tx.messageLog.deleteMany({ where: { OR: [{ contractId: { in: contractIds } }, { tenantId: { in: tenantIds } }] } });
+      await tx.reservation.deleteMany({ where: { id: { in: reservationIds } } });
+      await tx.approvalRequest.deleteMany({ where: { entityId: { in: entityIds } } });
+      await tx.notification.deleteMany({ where: { entityId: { in: entityIds } } });
+      await tx.contract.updateMany({ where: { renewedFromId: { in: contractIds } }, data: { renewedFromId: null } });
+      await tx.contract.deleteMany({ where: { id: { in: contractIds } } });
+      await tx.tenant.deleteMany({ where: { id: { in: tenantIds } } });
+    } finally {
+      // The connection goes back to the pool: never leave the guards switched off on it.
+      await tx.$executeRawUnsafe('SET @rpms_purge = NULL');
+    }
+
+    // Nobody lives anywhere now: occupied rooms, and rooms reserved without a remaining reservation, are vacant.
+    const freed = await tx.room.updateMany({
+      where: {
+        building: { orgId: actor.orgId },
+        OR: [{ status: 'OCCUPIED' }, { status: 'RESERVED', reservations: { none: { status: 'ACTIVE' } } }],
+      },
+      data: { status: 'VACANT' },
+    });
+
+    const history = Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k}`).join(', ') || 'nothing to delete';
+    await audit(tx, actor, {
+      action: 'ALL_TENANTS_DELETED', entityType: 'Tenant', entityId: null,
+      summary: `All tenants deleted with their history (${history}); ${freed.count} room(s) set to vacant`,
+      oldValue: { deleted: counts, roomsVacated: freed.count },
+    });
+    return { entityIds, counts: { ...counts, roomsVacated: freed.count } };
+  });
+  await removeDocumentsFor(actor.orgId, removed.entityIds);
+  return removed.counts;
+}

@@ -161,6 +161,11 @@ propertyRouter.post('/tenants', requirePermission('tenant.manage'), async (req, 
   const { roomId, startDate, ...tenant } = zNewTenant.parse(req.body);
   res.status(201).json(await tenants.createTenant(actorOf(req), tenant, roomId && startDate ? { roomId, startDate } : undefined));
 });
+// Wipes every tenant with all their contracts and payments. The caller must type DELETE to confirm.
+propertyRouter.post('/tenants/delete-all', requirePermission('data.delete'), async (req, res) => {
+  z.object({ confirm: z.literal('DELETE', { error: 'Type DELETE to confirm deleting all tenants.' }) }).parse(req.body);
+  res.json(await deletion.deleteAllTenants(actorOf(req)));
+});
 propertyRouter.get('/tenants/:id', requirePermission('tenant.view'), async (req, res) => {
   const id = zId.parse(req.params.id);
   await tenants.assertTenantVisible(actorOf(req), id);

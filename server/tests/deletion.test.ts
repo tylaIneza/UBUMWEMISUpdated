@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/db.js';
 import { createContract } from '../src/services/contracts.js';
-import { deleteBuilding, deleteFloor, deleteRoom, deleteTenant } from '../src/services/deletion.js';
+import { deleteAllTenants, deleteBuilding, deleteFloor, deleteRoom, deleteTenant } from '../src/services/deletion.js';
 import { changeRoomRent, createBuilding, createFloor, createRoom, updateRoom } from '../src/services/property.js';
 import { createWorld, d, failure, lease, loginAs, makeBuilding, makeTenant, pay, thisMonth, today, type World } from './helpers.js';
 import { addMonths, endOfMonth } from '../src/lib/dates.js';
@@ -124,5 +124,33 @@ describe('deleting records created by mistake', () => {
     expect((await cashier.del(`/tenants/${t.id}`)).status).toBe(403);
     const manager = await loginAs(w.emails.MANAGEMENT);
     expect((await manager.del(`/tenants/${t.id}`)).status).toBe(200);
+  });
+});
+
+describe('deleting all tenants', () => {
+  it('wipes every tenant with their contracts and payments, frees the rooms, and keeps buildings', async () => {
+    const b = await makeBuilding(w, 'WIPE', 1, 2);
+    const [r1, r2] = b.floors[0]!.rooms;
+    const { contract: c1 } = await lease(w, r1!.id);
+    await pay(w, 'CASHIER', c1.id, 1000);
+    const { contract: c2 } = await lease(w, r2!.id);
+    await pay(w, 'CASHIER', c2.id, 300);
+    await makeTenant(w);
+
+    const result = await deleteAllTenants(w.actors.SUPER_ADMIN);
+
+    expect(result.tenants).toBeGreaterThanOrEqual(3);
+    expect(await prisma.tenant.count({ where: { orgId: w.orgId } })).toBe(0);
+    expect(await prisma.contract.count({ where: { buildingId: b.id } })).toBe(0);
+    expect(await prisma.payment.count({ where: { buildingId: b.id } })).toBe(0);
+    expect(await prisma.rentCharge.count({ where: { buildingId: b.id } })).toBe(0);
+    expect(await prisma.room.count({ where: { buildingId: b.id, status: 'VACANT' } })).toBe(2);
+    expect(await prisma.building.count({ where: { id: b.id } })).toBe(1);
+    expect(await prisma.auditLog.count({ where: { action: 'ALL_TENANTS_DELETED' } })).toBeGreaterThanOrEqual(1);
+
+    // The guards are back on afterwards.
+    const { contract: c3 } = await lease(w, r1!.id);
+    const p3 = await pay(w, 'CASHIER', c3.id, 200);
+    await expect(prisma.payment.delete({ where: { id: p3.id } })).rejects.toThrow(/payments cannot be deleted/);
   });
 });

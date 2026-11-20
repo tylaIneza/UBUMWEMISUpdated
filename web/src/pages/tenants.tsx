@@ -29,12 +29,15 @@ export function Tenants() {
   const q = useDebounced(search);
   const list = useApi('/tenants', { q, status, buildingId, withArrears: withArrears || undefined, page, pageSize: 25 });
   const [importing, setImporting] = useState(false);
+  const [wiping, setWiping] = useState(false);
+  const wipe = useAction((confirm: string) => api.post('/tenants/delete-all', { confirm }), 'All tenants deleted.');
   useEffect(() => setPage(1), [q, status, buildingId, withArrears]);
   const set = (k: string, v: string) => { const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); setParams(p, { replace: true }); };
   return (
     <div className="stack">
-      <PageHead title="Tenants" sub="Current and former tenants. Former tenants are kept, never deleted.">
+      <PageHead title="Tenants" sub="Current and former tenants.">
         {can('import.data') && <Button onClick={() => setImporting(true)}>Import from Excel</Button>}
+        {can('data.delete') && <Button variant="danger" onClick={() => setWiping(true)}>Delete all tenants</Button>}
         {can('tenant.manage') && <Link to="/tenants/new" className="btn primary">Add tenant</Link>}
       </PageHead>
       <ErrorBox error={list.error} />
@@ -55,6 +58,11 @@ export function Tenants() {
         <Pager data={list.data} onPage={setPage} />
       </Card>
       {importing && <Modal wide title="Import tenants" onClose={() => setImporting(false)}><ImportPanel scope="tenants" /></Modal>}
+      {wiping && (
+        <Confirm title="Delete ALL tenants?" danger confirmLabel="Delete all tenants permanently" reason="Type DELETE to confirm" onClose={() => setWiping(false)} onConfirm={(text) => wipe.mutateAsync(text)}>
+          This permanently deletes every tenant{list.data?.total ? ` (${list.data.total} in the current list, plus any hidden by filters)` : ''} together with ALL their contracts, rent charges, payments, receipts, invoices, deposits and messages. Occupied rooms become vacant. Buildings, rooms and expenses are kept. This cannot be undone.
+        </Confirm>
+      )}
     </div>
   );
 }
