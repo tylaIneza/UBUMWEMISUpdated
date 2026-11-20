@@ -276,8 +276,10 @@ let queue: Promise<unknown> = Promise.resolve();
 /**
  * One LibreOffice profile shared by every conversion: creating a fresh profile costs ~5 s per contract.
  * Sharing is safe because conversions run one at a time (the queue); a profile left broken by a failed run is discarded.
+ * The folder name includes the OS user id: /tmp is shared, and a profile left by another user (e.g. after the
+ * service was moved to run as a different account) cannot be opened and would make every conversion fail.
  */
-const SOFFICE_PROFILE = join(tmpdir(), 'rpms-soffice-profile');
+const SOFFICE_PROFILE = join(tmpdir(), `rpms-soffice-profile-${process.getuid?.() ?? 'user'}`);
 
 /** Prints the filled Word file to PDF with LibreOffice — one at a time, all with the same profile. */
 async function toPdf(docx: Buffer): Promise<Buffer> {
@@ -289,7 +291,8 @@ async function toPdf(docx: Buffer): Promise<Buffer> {
       await run(soffice, [`-env:UserInstallation=file://${SOFFICE_PROFILE}`, '--headless', '--convert-to', 'pdf', '--outdir', dir, join(dir, 'contract.docx')], { timeout: 120_000 });
       return await readFile(join(dir, 'contract.pdf'));
     } catch (e) {
-      await rm(SOFFICE_PROFILE, { recursive: true, force: true });
+      // Never let the clean-up hide the real reason the conversion failed.
+      await rm(SOFFICE_PROFILE, { recursive: true, force: true }).catch(() => undefined);
       throw new AppError(500, 'PDF_CONVERTER_UNAVAILABLE', `Could not print the contract to PDF (LibreOffice is needed on the server): ${(e as Error).message}`);
     } finally {
       await rm(dir, { recursive: true, force: true });
