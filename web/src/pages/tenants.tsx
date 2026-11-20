@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, newSubmissionKey } from '../api';
 import { useAuth, useMeta } from '../auth';
-import { date, dateTime, label, money, monthRange, parsePhone, phone, smsLink, tenancyPeriod } from '../format';
+import { CONTRACT_LENGTHS, date, dateTime, endAfterMonths, label, money, monthRange, parsePhone, phone, smsLink, tenancyPeriod } from '../format';
 import { DocumentsPanel, ImportPanel, LedgerTable, PaymentsTable, TimelinePanel, useAction, useApi } from '../shared';
 import { Alert, AutoForm, Badge, Button, Card, Confirm, DL, Empty, enumOpts, ErrorBox, Field, Loading, Modal, opts, PageHead, Pager, Select, Stat, Table, Tabs, TextInput, useDebounced, useToast, type FieldDef } from '../ui';
 
@@ -287,11 +287,6 @@ function defaultEnd(start: string): string {
   return new Date(Date.UTC(y, m - 1 + 12, 0)).toISOString().slice(0, 10);
 }
 
-/** Last day of the calendar month that is `months - 1` months after the start month. */
-function lastDayAfterMonths(start: string, months: number): string {
-  const [y, m] = start.split('-').map(Number) as [number, number];
-  return new Date(Date.UTC(y, m - 1 + months, 0)).toISOString().slice(0, 10);
-}
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthName = (iso: string) => `${MONTH_NAMES[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
@@ -315,7 +310,7 @@ export function Onboarding({ existing }: { existing?: boolean }) {
   const [buildingId, setBuildingId] = useState('');
   const [floorId, setFloorId] = useState('');
   const [roomId, setRoomId] = useState(params.get('roomId') ?? '');
-  const [terms, setTerms] = useState<Record<string, any>>({ startDate: '', endDate: '', paymentDueDay: '', graceDays: '', specialTerms: '', customRent: false, monthlyRent: '', rentOverrideReason: '', paidNow: '', methodId: '', reference: '', manualEnd: false, remainder: 'credit' });
+  const [terms, setTerms] = useState<Record<string, any>>({ startDate: '', endDate: '', paymentDueDay: '', graceDays: '', specialTerms: '', customRent: false, monthlyRent: '', rentOverrideReason: '', paidNow: '', methodId: '', reference: '', length: '', remainder: 'credit' });
   const [deposit, setDeposit] = useState<Record<string, any>>({ depositAmount: '', payNow: false, paidAmount: '', methodId: '', reference: '' });
   const [files, setFiles] = useState<Array<{ file: File; category: string }>>([]);
 
@@ -365,8 +360,10 @@ export function Onboarding({ existing }: { existing?: boolean }) {
   const leftOver = paidNow - fullMonths * rentNum;
   const coveredMonths = fullMonths + (leftOver > 0 && (terms.remainder === 'extend' || fullMonths < 1) ? 1 : 0);
   const canTakeRent = can('payment.create');
-  const autoEnd = !terms.manualEnd && paidNow > 0 && coveredMonths > 0 && terms.startDate ? lastDayAfterMonths(terms.startDate, coveredMonths) : '';
-  const endDate = terms.manualEnd || paidNow <= 0 ? terms.endDate : autoEnd;
+  // Contract length: chosen in months, 'custom' (pick the end date), or 'auto' (from the money paid now).
+  const lengthChoice: string = terms.length || (paidNow > 0 ? 'auto' : '12');
+  const autoEnd = lengthChoice === 'auto' && paidNow > 0 && coveredMonths > 0 && terms.startDate ? endAfterMonths(terms.startDate, coveredMonths) : '';
+  const endDate = lengthChoice === 'custom' ? terms.endDate : lengthChoice === 'auto' ? autoEnd : terms.startDate ? endAfterMonths(terms.startDate, Number(lengthChoice)) : '';
   const paidMethod = (meta.data?.paymentMethods ?? []).find((m: any) => m.id === terms.methodId);
   const tenantName = existing ? chosenTenant.data?.fullName : tenant.fullName;
   const blockers: Array<string | false> = [
@@ -588,7 +585,7 @@ export function Onboarding({ existing }: { existing?: boolean }) {
                 </>}
               </div>
 
-              {paidNow > 0 && !terms.manualEnd && (coveredMonths >= 1 ? (
+              {lengthChoice === 'auto' && paidNow > 0 && (coveredMonths >= 1 ? (
                 <div className="alert green">
                   <div className="grow stack tight">
                     <span><strong>{money(paidNow)}</strong> ÷ {money(rentNum)} a month = <strong>{fullMonths} month{fullMonths === 1 ? '' : 's'}</strong>{leftOver > 0 ? <> and {money(leftOver)} more</> : ''}.</span>
@@ -597,7 +594,7 @@ export function Onboarding({ existing }: { existing?: boolean }) {
                 </div>
               ) : <Alert>{money(paidNow)} is less than one month’s rent ({money(rentNum)}).</Alert>)}
 
-              {paidNow > 0 && !terms.manualEnd && leftOver > 0 && fullMonths >= 0 && (
+              {lengthChoice === 'auto' && paidNow > 0 && leftOver > 0 && fullMonths >= 0 && (
                 <fieldset className="stack tight" style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '10px 14px' }}>
                   <legend className="small strong">The extra {money(leftOver)} is not a full month. What should happen?</legend>
                   {fullMonths >= 1 && <label className="check"><input type="radio" name="remainder" checked={terms.remainder === 'credit'} onChange={() => setTerms({ ...terms, remainder: 'credit' })} /> End after {fullMonths} month{fullMonths === 1 ? '' : 's'}; keep {money(leftOver)} as credit for the tenant</label>}
@@ -605,8 +602,20 @@ export function Onboarding({ existing }: { existing?: boolean }) {
                 </fieldset>
               )}
 
-              <label className="check"><input type="checkbox" checked={terms.manualEnd} onChange={(e) => setTerms({ ...terms, manualEnd: e.target.checked, endDate: terms.endDate || autoEnd || defaultEnd(terms.startDate || today) })} /> Set the end date myself</label>
-              {(terms.manualEnd || paidNow <= 0) && <div className="form-grid">{input(terms, setTerms, 'endDate', 'End date', 'date', { required: true, min: terms.startDate, hint: paidNow <= 0 ? 'No payment entered, so choose the end date.' : undefined })}</div>}
+              <div className="form-grid">
+                <Field label="Contract length" required hint="How long the contract lasts. Rent is billed for each calendar month.">
+                  {(fid) => (
+                    <select id={fid} className="input" value={lengthChoice} onChange={(e) => setTerms({ ...terms, length: e.target.value, endDate: e.target.value === 'custom' ? (endDate || defaultEnd(terms.startDate || today)) : terms.endDate })}>
+                      {paidNow > 0 && <option value="auto">From the amount paid now</option>}
+                      {CONTRACT_LENGTHS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  )}
+                </Field>
+                {lengthChoice === 'custom' && input(terms, setTerms, 'endDate', 'End date', 'date', { required: true, min: terms.startDate })}
+              </div>
+              {lengthChoice !== 'auto' && terms.startDate && endDate && endDate >= terms.startDate && (
+                <div className="alert green"><div>Contract: <strong>{date(terms.startDate)} – {date(endDate)}</strong>{paidNow > 0 ? <> · the {money(paidNow)} paid now is applied month by month from {monthName(terms.startDate)}; anything beyond the contract stays as credit.</> : null}</div></div>
+              )}
 
               <div className="form-grid">
                 {input(terms, setTerms, 'paymentDueDay', 'Rent due on day of month', 'number', { hint: '1–31' })}{input(terms, setTerms, 'graceDays', 'Grace period (days)', 'number', { hint: 'Days after the due date before rent counts as overdue.' })}

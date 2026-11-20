@@ -81,3 +81,24 @@ export function phone(v: unknown): string {
 export function smsLink(to: string, body: string): string {
   return `sms:${to}?&body=${encodeURIComponent(body)}`;
 }
+
+/** Contract lengths offered in the forms; 'custom' lets the user pick the end date. */
+export const CONTRACT_LENGTHS: Array<{ value: string; label: string }> = [
+  { value: '1', label: '1 month' }, { value: '2', label: '2 months' }, { value: '3', label: '3 months' },
+  { value: '4', label: '4 months' }, { value: '6', label: '6 months' }, { value: '9', label: '9 months' },
+  { value: '12', label: '1 year' }, { value: '18', label: '1 year 6 months' }, { value: '24', label: '2 years' },
+  { value: '36', label: '3 years' }, { value: 'custom', label: 'Other — choose the end date' },
+];
+
+/** Contract end for a length in months: the last day of the calendar month `months - 1` after the start month,
+ *  so exactly `months` calendar months are billed (rent is billed per calendar month). "2026-11-20", 3 → "2027-01-31". */
+export function endAfterMonths(start: string, months: number): string {
+  const [y, m] = start.split('-').map(Number) as [number, number];
+  return new Date(Date.UTC(y, m - 1 + months, 0)).toISOString().slice(0, 10);
+}
+
+/** The day after an ISO date. */
+export function dayAfter(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}

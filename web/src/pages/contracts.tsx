@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth, useMeta } from '../auth';
-import { date, money } from '../format';
+import { CONTRACT_LENGTHS, date, dayAfter, endAfterMonths, money } from '../format';
 import { DocumentsPanel, DownloadButton, LedgerTable, PaymentsTable, TimelinePanel, useAction, useApi } from '../shared';
 import { Alert, AutoForm, Badge, Button, Card, Confirm, DL, Empty, enumOpts, ErrorBox, Loading, Modal, opts, PageHead, Pager, Select, Stat, Table, Tabs, TextInput, useDebounced, useToast } from '../ui';
 
@@ -73,18 +73,22 @@ export function ContractDetail() {
   const dates = post('/dates', 'Dates corrected. Rent is now counted from the new start date.');
   const give = post('/give', 'Contract given. You can now print it.');
   const discard = useAction(() => api.del(`/contracts/${id}`), 'Draft discarded.');
+  // Live values of the Give / Renew forms, to show the end date the chosen length gives.
+  const [lengthForm, setLengthForm] = useState<Record<string, any>>({});
   if (q.error) return <ErrorBox error={q.error} />;
   if (!q.data) return <Loading />;
   const c = q.data;
   const occupying = ['ACTIVE', 'EXPIRING', 'EXPIRED'].includes(c.status);
   // A tenant who rents the room without a contract yet: rent and payments work as usual, nothing can be printed.
   const noLease = !c.leaseStart;
-  const oneYearFrom = (iso: string) => { const [y, m, d] = iso.split('-').map(Number) as [number, number, number]; return new Date(Date.UTC(y + 1, m - 1, d - 1)).toISOString().slice(0, 10); };
+  /** End date from a form with `length` (months or 'custom') and, for custom, `endDate`. */
+  const endFor = (start: string, v: Record<string, any>) => (v.length === 'custom' ? v.endDate : start ? endAfterMonths(start, Number(v.length || 12)) : '');
+  const renewFrom = dayAfter(c.endDate);
   const giveFrom = today > c.startDate.slice(0, 10) ? today : c.startDate.slice(0, 10);
   const s = c.summary;
   const methods = opts(meta.data?.paymentMethods?.filter((m: any) => m.isActive));
   const nextMonth = `${today.slice(0, 7) === `${today.slice(0, 4)}-12` ? `${Number(today.slice(0, 4)) + 1}-01` : `${today.slice(0, 4)}-${String(Number(today.slice(5, 7)) + 1).padStart(2, '0')}`}-01`;
-  const close = () => setDialog('');
+  const close = () => { setDialog(''); setLengthForm({}); };
   return (
     <div className="stack">
       <PageHead title={<>{c.contractNumber} <Badge status={c.status} />{noLease && <> <Badge status="PENDING" text="No contract" /></>}</>} sub={<><Link to={`/tenants/${c.tenant.id}`}>{c.tenant.fullName}</Link> · Room <Link to={`/rooms/${c.room.id}`}>{c.room.number}</Link> · {c.floor.name}, {c.building.name}</>}>
@@ -212,10 +216,12 @@ export function ContractDetail() {
       )}
       {dialog === 'give' && (
         <Modal title={`Give ${c.tenant.fullName} a contract`} onClose={close}>
-          <AutoForm submitLabel="Give contract" onCancel={close} initial={{ startDate: giveFrom, endDate: oneYearFrom(giveFrom) }} fields={[
+          <AutoForm submitLabel="Give contract" onCancel={close} initial={{ startDate: giveFrom, length: '12', endDate: endAfterMonths(giveFrom, 12) }} onChange={setLengthForm} fields={[
             { name: 'startDate', label: 'Contract starts on', type: 'date', required: true, min: c.startDate.slice(0, 10), hint: `On or after ${date(c.startDate)}, when ${c.tenant.fullName} moved in.` },
-            { name: 'endDate', label: 'Contract ends on', type: 'date', required: true, min: today, hint: 'Usually one year, e.g. 01 Jan 2027 – 31 Dec 2027. If you change the start, change this too.' },
-          ]} onSubmit={async (v) => { await give.mutateAsync(v); close(); }}>
+            { name: 'length', label: 'Contract length', type: 'select', required: true, options: CONTRACT_LENGTHS },
+            { name: 'endDate', label: 'Contract ends on', type: 'date', required: true, min: today, when: (v) => v.length === 'custom' },
+          ]} onSubmit={async (v) => { await give.mutateAsync({ startDate: v.startDate, endDate: endFor(v.startDate, v) }); close(); }}>
+            {(() => { const v = { startDate: giveFrom, length: '12', ...lengthForm }; const end = endFor(v.startDate, v); return end ? <div className="alert green"><div>Contract: <strong>{date(v.startDate)} – {date(end)}</strong></div></div> : null; })()}
             <div className="alert blue"><div>The rent, payments and deposit recorded so far stay exactly as they are. The printed contract uses these dates.</div></div>
             {(() => { const t = c.tenant; const gaps = [['phone', t.phone], ['ID number', t.idNumber], ['TIN', t.tin], ['district', t.district], ['sector', t.sector], ['cell', t.cell], ['village', t.village]].filter(([, v]) => !v).map(([k]) => k); return gaps.length ? <div className="alert amber"><div>{t.fullName} has no {gaps.join(', ')} yet, so the printed contract will have blank lines there. <Link to={`/tenants/${t.id}`}>Edit the tenant</Link> to fill them in, before or after giving the contract.</div></div> : null; })()}
           </AutoForm>
@@ -223,17 +229,21 @@ export function ContractDetail() {
       )}
       {dialog === 'renew' && (
         <Modal title={`Renew ${c.contractNumber}`} onClose={close}>
-          <AutoForm submitLabel="Renew contract" onCancel={close} fields={[
-            { name: 'endDate', label: 'New end date', type: 'date', required: true, min: c.endDate.slice(0, 10), hint: `The new contract starts the day after ${date(c.endDate)}.` },
+          <AutoForm submitLabel="Renew contract" onCancel={close} initial={{ length: '12', endDate: endAfterMonths(renewFrom, 12) }} onChange={setLengthForm} fields={[
+            { name: 'length', label: 'New contract length', type: 'select', required: true, options: CONTRACT_LENGTHS, hint: `The new contract starts on ${date(renewFrom)}, the day after the current one ends.` },
+            { name: 'endDate', label: 'New end date', type: 'date', required: true, min: renewFrom, when: (v) => v.length === 'custom' },
             { name: 'monthlyRent', label: 'Monthly rent (RWF)', type: 'money', hint: `Leave empty to keep ${money(c.monthlyRent)}.` },
             { name: 'rentChangeReason', label: 'Reason for the rent change', when: (v) => v.monthlyRent !== '' && Number(v.monthlyRent) !== Number(c.monthlyRent), required: true, full: true },
             { name: 'specialTerms', label: 'Special terms', type: 'textarea', hint: 'Leave empty to carry over the current terms.' },
           ]} onSubmit={async (v) => {
-            const renewed = await renew.mutateAsync({ ...v, monthlyRent: v.monthlyRent === '' ? undefined : v.monthlyRent });
+            const { length: _length, ...rest } = v;
+            const renewed = await renew.mutateAsync({ ...rest, endDate: endFor(renewFrom, v), monthlyRent: v.monthlyRent === '' ? undefined : v.monthlyRent });
             toast(`Renewed as ${renewed.contractNumber}.`);
             close();
             navigate(`/contracts/${renewed.id}`);
-          }} />
+          }}>
+            {(() => { const end = endFor(renewFrom, { length: '12', ...lengthForm }); return end ? <div className="alert green"><div>New contract: <strong>{date(renewFrom)} – {date(end)}</strong></div></div> : null; })()}
+          </AutoForm>
         </Modal>
       )}
       {dialog === 'rent' && (
